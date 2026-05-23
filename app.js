@@ -2,78 +2,45 @@
   "use strict";
 
   const core = window.AMCCore;
-  const state = {
-    macro: core.createBlankMacro(),
-    fileName: "未命名.amc",
-    projectFileName: "未命名.x7proj",
-    saveBaseName: "未命名",
-    amcHandle: null,
-    projectHandle: null,
-    encoding: "utf-8",
-    selectedIndex: null,
-    expandedIndex: null,
-    dragIndex: null,
-    dragHandleArmed: false,
-    autoExpand: false,
-    inputDockCollapsed: false,
-    coordinateCapture: null,
-    rawDirty: false,
-    heldMode: "tap"
-  };
-
-  const KEYBOARD_GROUPS = [
-    {
-      className: "keyboard-main",
-      rows: [
-        [41, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69],
-        [53, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 45, 46, 42],
-        [43, 20, 26, 8, 21, 23, 28, 24, 12, 18, 19, 47, 48, 49],
-        [57, 4, 22, 7, 9, 10, 11, 13, 14, 15, 51, 52, 40],
-        [265, 29, 27, 6, 25, 5, 17, 16, 54, 55, 56, 269],
-        [264, 267, 266, 44, 270, 271, 268]
-      ]
-    },
-    {
-      className: "keyboard-nav",
-      rows: [
-        [70, 71, 72],
-        [73, 74, 75],
-        [76, 77, 78],
-        [null, 82, null],
-        [80, 81, 79]
-      ]
-    },
-    {
-      className: "keyboard-numpad",
-      rows: [
-        [83, 84, 85, 86],
-        [95, 96, 97, 87],
-        [92, 93, 94],
-        [89, 90, 91, 88],
-        [98, 99]
-      ]
-    }
-  ];
-
-  const AMC_FILE_TYPES = [{
-    description: "AMC Macro",
-    accept: {
-      "application/octet-stream": [".amc"],
-      "text/xml": [".xml"]
-    }
-  }];
-
-  const PROJECT_FILE_TYPES = [{
-    description: "X7 Project",
-    accept: {
-      "application/json": [".x7proj", ".json"]
-    }
-  }];
-
-  const MACRO_LIBRARY_PATH = "C:\\Program Files (x86)\\OSCAR Editor  X7\\OSCAR Editor  X7\\ScriptsMacros\\ChineseT\\MacroLibrary";
+  const appData = window.X7AppData;
+  const {
+    KEYBOARD_GROUPS,
+    AMC_FILE_TYPES,
+    PROJECT_FILE_TYPES,
+    MACRO_LIBRARY_PATH,
+    PICKER_APP_ID,
+    PICKER_CHANNEL_NAME
+  } = appData;
+  let toastTimer = null;
+  const {
+    valueOr,
+    numberOr,
+    syntaxTextToLines,
+    clone,
+    safeFileName,
+    baseNameFromFile,
+    keyboardDisplayLabel,
+    escapeHtml,
+    escapeAttr
+  } = window.X7AppUtils;
+  const templates = window.X7AppTemplates;
+  const appState = window.X7AppState;
+  const state = appState.createInitialState(core);
 
   const el = {};
   let transparentDragImage = null;
+  let activeDropRow = null;
+  let activeDropPlacement = "";
+  let latestFlowMap = null;
+  let latestSyntaxLines = [];
+  let pickerWindow = null;
+  let pickerChannel = null;
+  let pickerPoints = [];
+  const processedPickerMessageIds = new Set();
+  let workspaceMinimumsCache = null;
+  let resizeSyncScheduled = false;
+  let lastWorkspaceMode = null;
+  let rawPanelMode = "meta";
 
   document.addEventListener("DOMContentLoaded", init);
 
@@ -82,36 +49,54 @@
     populateStaticOptions();
     renderKeyboard();
     bindEvents();
+    syncMinimumWorkspaceMode();
+    window.addEventListener("resize", scheduleMinimumWorkspaceModeSync);
     renderAll();
   }
 
   function bindElements() {
     [
       "fileInput", "packageInput", "projectInput", "openButton", "openProjectButton", "saveProjectButton",
-      "saveProjectAsButton", "newButton", "exportButton", "exportAsButton", "packageButton", "fileName", "encodingName",
-      "templateButton", "macroFolderButton", "statusText", "commentInput", "softwareInput", "descriptionInput", "keyboardGrid",
+      "saveProjectAsButton", "newButton", "exportButton", "exportAsButton", "packageButton",
+      "templateButton", "macroFolderButton", "commentInput", "softwareInput", "descriptionInput", "keyboardGrid",
       "keyboardMode", "mousePadGrid", "mouseMode", "tapDelayInput", "tapReleaseDelayInput", "delayValue",
-      "delayUnit", "moveCommand", "moveAbsX", "moveAbsY", "moveRelX", "moveRelY", "gotoLine", "repeatStart",
-      "repeatTimes", "ifKeyButton", "ifKeyState", "ifKeyTarget", "condLeft", "condOp",
-      "condRightKind", "condRightNumber", "condRightVar", "condTarget", "assignLeft",
-      "assignMode", "assignSource", "assignNumber", "rawLine", "commentText", "steps",
+      "mouseTapDelayInput", "mouseTapReleaseDelayInput", "delayUnit", "moveCommand", "moveAbsX", "moveAbsY", "moveRelX", "moveRelY", "absPointSelect", "relPointSelect", "commonFlowCombo",
+      "commonFlowVar", "commonFlowTimes", "commonFlowDelay", "gotoLine", "repeatStart",
+      "repeatTimes", "ifKeyButton", "ifKeyState", "ifKeyTarget", "condNumberLeft", "condNumberOp",
+      "condNumberValue", "condNumberTarget", "condVarLeft", "condVarOp", "condVarRight", "condVarTarget", "assignNumberLeft",
+      "assignNumberValue", "assignVarLeft", "assignVarSource", "assignAddLeft", "assignAddSource",
+      "assignAddValue", "rawLine", "commentText", "steps",
       "editorSummary", "insertPosition", "clearSelectionButton", "deleteSelectionButton",
-      "analysisList", "rawSyntax", "applyRawButton", "autoExpandToggle",
-      "inputDock", "inputDockToggle", "inputDockRestore", "captureAbsButton",
-      "captureRelButton", "coordinateStatus", "saveNameInput"
+      "analysisList", "rawSyntax", "rawLineNumbers", "applyRawButton", "autoExpandToggle",
+      "inputDock", "inputDockToggle", "inputDockRestore", "inputDockClose", "captureAbsButton",
+      "captureRelButton", "openPickerButton", "coordinateStatus", "repeatTypeSelect",
+      "metaPanelToggle", "syntaxPanelToggle", "rawPanelTitle", "rawPanelClose", "toolsPanelToggle", "toolsPanelClose",
+      "assistMouseDownDelay", "assistMouseUpDelay", "assistKeyDownDelay", "assistKeyUpDelay", "toast"
     ].forEach((id) => {
       el[id] = document.getElementById(id);
     });
   }
 
   function populateStaticOptions() {
-    [el.condLeft, el.condRightVar, el.assignLeft, el.assignSource].forEach((select) => {
+    [
+      el.commonFlowVar,
+      el.condNumberLeft,
+      el.condVarLeft,
+      el.condVarRight,
+      el.assignNumberLeft,
+      el.assignVarLeft,
+      el.assignVarSource,
+      el.assignAddLeft,
+      el.assignAddSource
+    ].forEach((select) => {
       setOptions(select, core.VARIABLES, "id", (variable) => variable.label);
     });
   }
 
   function bindEvents() {
     el.macroFolderButton.addEventListener("click", openMacroLibraryFolder);
+    initCoordinatePickerMessaging();
+    el.openPickerButton.addEventListener("click", openCoordinatePicker);
     el.openButton.addEventListener("click", openAmcFile);
     el.fileInput.addEventListener("change", onFileSelected);
     el.openProjectButton.addEventListener("click", openProjectFile);
@@ -124,6 +109,10 @@
     el.templateButton.addEventListener("click", loadFlowVariableTemplate);
     el.exportButton.addEventListener("click", () => exportMacro(false));
     el.exportAsButton.addEventListener("click", () => exportMacro(true));
+    window.addEventListener("focus", flushPendingCoordinateFlashes);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") flushPendingCoordinateFlashes();
+    });
 
     el.commentInput.addEventListener("input", () => {
       state.macro.comment = el.commentInput.value;
@@ -137,21 +126,26 @@
       state.macro.description = el.descriptionInput.value;
       renderStatus();
     });
-    el.saveNameInput.addEventListener("input", () => {
-      updateFileNamesFromInput(true);
+    el.repeatTypeSelect.addEventListener("change", () => {
+      state.macro.repeatType = el.repeatTypeSelect.value;
       renderStatus();
     });
-    document.querySelectorAll("input[name='repeatType']").forEach((input) => {
-      input.addEventListener("change", () => {
-        if (input.checked) state.macro.repeatType = input.value;
-        renderStatus();
-      });
-    });
     el.autoExpandToggle.addEventListener("change", () => setAutoExpand(el.autoExpandToggle.checked));
-    el.inputDockToggle.addEventListener("change", () => setInputDockCollapsed(el.inputDockToggle.checked));
-    el.inputDockRestore.addEventListener("click", () => setInputDockCollapsed(false));
+    el.inputDockToggle.addEventListener("change", () => setInputDockOpen(el.inputDockToggle.checked));
+    el.inputDockRestore.addEventListener("click", () => setInputDockOpen(true));
+    el.inputDockClose.addEventListener("click", () => setInputDockOpen(false));
+    el.toolsPanelToggle.addEventListener("click", toggleToolsPanel);
+    el.toolsPanelClose.addEventListener("click", () => setToolsPanelOpen(false));
+    el.metaPanelToggle.addEventListener("click", () => toggleRawPanel("meta"));
+    el.syntaxPanelToggle.addEventListener("click", () => toggleRawPanel("syntax"));
+    el.rawPanelClose.addEventListener("click", () => setRawPanelOpen(false));
     el.captureAbsButton.addEventListener("pointerdown", (event) => startCoordinateCapture("absolute", event));
     el.captureRelButton.addEventListener("pointerdown", (event) => startCoordinateCapture("relative", event));
+    [el.moveAbsX, el.moveAbsY, el.moveRelX, el.moveRelY].forEach((input) => {
+      input.addEventListener("input", sendPickerSync);
+    });
+    el.absPointSelect.addEventListener("change", () => applyCapturedPointToAbsolute(el.absPointSelect.value));
+    el.relPointSelect.addEventListener("change", () => applyCapturedPointToRelative(el.relPointSelect.value));
 
     el.keyboardGrid.addEventListener("click", onKeyboardClick);
     el.mousePadGrid.addEventListener("click", onMousePadClick);
@@ -165,17 +159,20 @@
     document.querySelectorAll("[data-tool-tab]").forEach((button) => {
       button.addEventListener("click", () => activateToolTab(button.dataset.toolTab));
     });
-    el.condRightKind.addEventListener("change", toggleToolControls);
-    el.assignMode.addEventListener("change", toggleToolControls);
-    toggleToolControls();
-
+    document.querySelectorAll("[data-assist-delay]").forEach((button) => {
+      button.addEventListener("click", () => applyDelayAssist(button.dataset.assistDelay));
+    });
     el.steps.addEventListener("click", onStepClick);
+    el.steps.addEventListener("pointerover", onStepPointerOver);
+    el.steps.addEventListener("pointerleave", onStepPointerLeave);
     el.steps.addEventListener("pointerdown", onStepPointerDown);
     el.steps.addEventListener("dragstart", onStepDragStart);
     el.steps.addEventListener("dragover", onStepDragOver);
     el.steps.addEventListener("dragleave", onStepDragLeave);
     el.steps.addEventListener("drop", onStepDrop);
     el.steps.addEventListener("dragend", onStepDragEnd);
+    document.addEventListener("dragend", finishStepDrag);
+    document.addEventListener("drop", finishStepDrag);
     document.addEventListener("pointerup", () => {
       state.dragHandleArmed = false;
     });
@@ -192,23 +189,15 @@
     el.rawSyntax.addEventListener("input", () => {
       state.rawDirty = true;
       el.applyRawButton.disabled = false;
+      renderRawLineNumbers();
       renderStatus();
     });
+    el.rawSyntax.addEventListener("scroll", syncRawLineNumberScroll);
     el.applyRawButton.addEventListener("click", applyRawSyntax);
   }
 
   async function openAmcFile() {
-    const handle = await pickOpenFile(AMC_FILE_TYPES);
-    if (handle === false) return;
-    if (!handle) {
-      el.fileInput.click();
-      return;
-    }
-    try {
-      await loadAmcFile(await handle.getFile(), handle);
-    } catch (error) {
-      setStatus(`匯入失敗：${error.message}`);
-    }
+    el.fileInput.click();
   }
 
   async function openProjectFile() {
@@ -279,7 +268,7 @@
       throw new Error("這不是可辨識的 X7 專案檔。");
     }
 
-    state.macro = normalizeProjectMacro(project.macro);
+    state.macro = appState.normalizeProjectMacro(core, clone, project.macro);
     state.projectHandle = handle || null;
     state.amcHandle = null;
     state.saveBaseName = project.saveBaseName || baseNameFromFile(project.amcFileName || state.macro.fileName || file.name);
@@ -318,6 +307,7 @@
   }
 
   function createNewMacro() {
+    if (!confirmReplaceWorkspace("新增")) return;
     state.macro = core.createBlankMacro();
     state.saveBaseName = "未命名";
     state.amcHandle = null;
@@ -331,17 +321,18 @@
   }
 
   function loadFlowVariableTemplate() {
+    if (!confirmReplaceWorkspace("變數範本")) return;
     state.macro = {
-      fileName: "流程變數範本.amc",
+      fileName: "變數範本.amc",
       major: "",
       description: "開啟記事本並將游標放在空白文件後執行。示範變數、跳行、迴圈與方向鍵。",
-      comment: "流程變數範本",
+      comment: "變數範本",
       repeatType: "0",
       keyUpSyntax: "",
-      rows: buildFlowVariableTemplateRows(),
+      rows: templates.buildFlowVariableTemplateRows(core),
       software: "範本"
     };
-    state.saveBaseName = "流程變數範本";
+    state.saveBaseName = "變數範本";
     state.amcHandle = null;
     state.projectHandle = null;
     syncFileNamesFromBase();
@@ -350,110 +341,64 @@
     state.expandedIndex = null;
     state.rawDirty = false;
     renderAll();
-    setStatus("已載入流程範本：可在記事本空白文件測試。");
+    setStatus("已載入變數範本：可在記事本空白文件測試。");
   }
 
-  function buildFlowVariableTemplateRows() {
-    const rows = [];
-    const keyCodes = {
-      a: "4", b: "5", c: "6", d: "7", e: "8", f: "9", g: "10", h: "11", i: "12",
-      j: "13", k: "14", l: "15", m: "16", n: "17", o: "18", p: "19", q: "20",
-      r: "21", s: "22", t: "23", u: "24", v: "25", w: "26", x: "27", y: "28",
-      z: "29", "1": "30", "2": "31", "3": "32", "4": "33", "5": "34", "6": "35",
-      "7": "36", "8": "37", "9": "38", "0": "39", " ": "44", "\n": "40",
-      left: "80", down: "81", right: "79", up: "82"
+  function confirmReplaceWorkspace(actionLabel) {
+    if (!workspaceHasUserContent()) return true;
+    return window.confirm(
+      `目前編輯內容會被「${actionLabel}」取代。\n\n` +
+      "建議先儲存專案或匯出 .amc。\n\n" +
+      "確定要繼續嗎？"
+    );
+  }
+
+  function workspaceHasUserContent() {
+    const macro = state.macro || {};
+    const blank = core.createBlankMacro();
+    if (state.projectHandle || state.amcHandle || state.rawDirty) return true;
+    if ((state.saveBaseName || "未命名") !== "未命名") return true;
+    if ((macro.description || "") !== (blank.description || "")) return true;
+    if ((macro.comment || "") !== (blank.comment || "")) return true;
+    if ((macro.software || "") !== (blank.software || "")) return true;
+    if (String(macro.repeatType || "0") !== String(blank.repeatType || "0")) return true;
+    if ((macro.keyUpSyntax || "") !== (blank.keyUpSyntax || "")) return true;
+    return core.buildSyntax(macro.rows || []) !== core.buildSyntax(blank.rows || []);
+  }
+
+  function projectData() {
+    const project = {
+      kind: "x7-amc-editor-project",
+      version: 1,
+      savedAt: new Date().toISOString(),
+      saveBaseName: state.saveBaseName || "未命名",
+      amcFileName: state.fileName || "未命名.amc",
+      encoding: state.encoding || "utf-8",
+      macro: clone(state.macro)
     };
-
-    const push = (row) => {
-      rows.push(row);
-      return row;
-    };
-    const comment = (text) => push({ type: "comment", marker: "//", text: ` ${text}` });
-    const varNumber = (left, value) => push({ type: "varSet", left, mode: "number", source: "varE", value: String(value) });
-    const varCopy = (left, source) => push({ type: "varSet", left, mode: "var", source, value: "0" });
-    const varAdd = (left, source, value) => push({ type: "varSet", left, mode: "add", source, value: String(value) });
-    const keyTap = (key, downDelay = "35", upDelay = "25") => push({
-      type: "keyTap",
-      keyCode: keyCodes[key],
-      count: "1",
-      downDelay,
-      upDelay
-    });
-    const typeText = (text) => {
-      String(text).split("").forEach((char) => {
-        if (keyCodes[char]) keyTap(char);
-      });
-    };
-    const targetLine = (row) => String(core.syntaxLineSpan(rows, rows.indexOf(row)).start);
-
-    comment("流程變數範本：先開記事本，把游標放在空白文件再執行");
-    comment("A 控制外層段落，B 控制每段輸入，C 複製 A，D 累計完成段數");
-    varNumber("varE", 0);
-    varNumber("varH", 0);
-
-    const outerCheck = comment("外層檢查：A 到 2 就跳到結尾");
-    const stopWhenDone = push({ type: "varIf", left: "varE", operator: "==", rightKind: "number", right: "2", target: "1" });
-    varNumber("varF", 0);
-    varCopy("varG", "varE");
-    typeText("line ");
-
-    const innerCheck = comment("變數跳行內圈：B 到 3 就跳出，否則輸入 x");
-    const leaveInner = push({ type: "varIf", left: "varF", operator: "==", rightKind: "number", right: "3", target: "1" });
-    typeText("x ");
-    varAdd("varF", "varF", 1);
-    push({ type: "goto", target: "1" }).target = targetLine(innerCheck);
-
-    const afterInner = comment("固定迴圈：用 Left 退三格，在中間插入 k，再用 Right 回到行尾");
-    const leftStart = keyTap("left", "20", "20");
-    push({ type: "goWhile", start: targetLine(leftStart), times: "3" });
-    typeText("k");
-    const rightStart = keyTap("right", "20", "20");
-    push({ type: "goWhile", start: targetLine(rightStart), times: "3" });
-    keyTap("\n", "45", "40");
-
-    comment("上下方向鍵測試：回上一行再回下一行，不改變文字內容");
-    const upStart = keyTap("up", "20", "20");
-    push({ type: "goWhile", start: targetLine(upStart), times: "1" });
-    const downStart = keyTap("down", "20", "20");
-    push({ type: "goWhile", start: targetLine(downStart), times: "1" });
-
-    varAdd("varE", "varE", 1);
-    varAdd("varH", "varH", 1);
-    push({ type: "goto", target: targetLine(outerCheck) });
-
-    const finish = comment("結尾：輸入 done 後停止");
-    stopWhenDone.target = targetLine(finish);
-    leaveInner.target = targetLine(afterInner);
-    typeText("done");
-    keyTap("\n", "45", "40");
-    comment("可測試拖曳、插入或刪除行，跳行目標會跟著更新");
-
-    return rows;
+    project.macro.fileName = state.fileName || project.macro.fileName || "未命名.amc";
+    return project;
   }
 
   async function saveProject(saveAs) {
     try {
-      const project = {
-        kind: "x7-amc-editor-project",
-        version: 1,
-        savedAt: new Date().toISOString(),
-        saveBaseName: state.saveBaseName || "未命名",
-        amcFileName: state.fileName || "未命名.amc",
-        encoding: state.encoding || "utf-8",
-        macro: clone(state.macro)
-      };
-      project.macro.fileName = state.fileName || project.macro.fileName || "未命名.amc";
-
-      const text = `${JSON.stringify(project, null, 2)}\n`;
+      const text = `${JSON.stringify(projectData(), null, 2)}\n`;
       const blob = new Blob([text], { type: "application/json" });
       const name = projectFileName();
       const handle = await saveBlobWithHandle(blob, {
         handle: saveAs ? null : state.projectHandle,
+        startInHandle: saveAs ? state.projectHandle : null,
         suggestedName: name,
+        pickerId: "x7-amc-save",
         types: PROJECT_FILE_TYPES
       });
-      if (handle) state.projectHandle = handle;
-      setStatus(handle ? `已儲存專案：${name}` : `已下載專案：${name}`);
+      const savedName = savedFileName(handle, name);
+      if (handle) {
+        state.projectHandle = handle;
+        syncProjectNameFromSavedFile(savedName);
+        await writeBlobToHandle(handle, new Blob([`${JSON.stringify(projectData(), null, 2)}\n`], { type: "application/json" }));
+      }
+      setStatus(handle ? `已儲存專案：${savedName}（${statusTime()}）` : `已下載專案：${savedName}（${statusTime()}）`);
     } catch (error) {
       if (isAbortError(error)) return;
       setStatus(`儲存專案失敗：${error.message}`);
@@ -468,11 +413,17 @@
       const name = amcFileName();
       const handle = await saveBlobWithHandle(blob, {
         handle: saveAs ? null : state.amcHandle,
+        startInHandle: saveAs ? state.amcHandle : null,
         suggestedName: name,
+        pickerId: "x7-amc-save",
         types: AMC_FILE_TYPES
       });
-      if (handle) state.amcHandle = handle;
-      setStatus(handle ? `已匯出 .amc：${name}` : `已下載 .amc：${name}`);
+      const savedName = savedFileName(handle, name);
+      if (handle) {
+        state.amcHandle = handle;
+        syncBaseNameFromSavedFile(savedName);
+      }
+      setStatus(handle ? `已匯出 .amc：${savedName}（${statusTime()}）` : `已下載 .amc：${savedName}（${statusTime()}）`);
     } catch (error) {
       if (isAbortError(error)) return;
       setStatus(`匯出失敗：${error.message}`);
@@ -514,34 +465,41 @@
     const button = event.target.closest("[data-key-code]");
     if (!button) return;
     const keyCode = button.dataset.keyCode;
-    const mode = event.ctrlKey ? "down" : event.altKey ? "up" : "tap";
+    const mode = event.ctrlKey ? "down" : event.shiftKey ? "up" : "tap";
     insertRows([makeKeyboardRow(keyCode, mode)]);
   }
 
   function onMousePadClick(event) {
     const button = event.target.closest("[data-mouse-action]");
     if (!button) return;
-    const mode = event.ctrlKey ? "down" : event.altKey ? "up" : "tap";
+    const mode = event.ctrlKey ? "down" : event.shiftKey ? "up" : "tap";
     const rows = makeMouseRows(button.dataset.mouseAction, mode);
     if (rows.length) insertRows(rows);
   }
 
   function onGlobalKeyDown(event) {
+    if (event.key === "Escape" && closeAnyFloatingPanel()) {
+      event.preventDefault();
+      return;
+    }
     if (event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
     if (isTypingTarget(event.target)) return;
     const key = String(event.key || "").toLowerCase();
-    if (key === "a") {
+    if (key === "e") {
       event.preventDefault();
-      toggleAutoExpand();
+      setAutoExpand(!state.autoExpand);
+      return;
+    }
+    if (key === "a") {
+      if (isToolsPopupMode()) {
+        event.preventDefault();
+        toggleToolsPanel();
+      }
       return;
     }
     if (key !== "s") return;
     event.preventDefault();
     toggleInputDock();
-  }
-
-  function toggleAutoExpand() {
-    setAutoExpand(!state.autoExpand);
   }
 
   function setAutoExpand(enabled) {
@@ -553,12 +511,389 @@
   }
 
   function toggleInputDock() {
-    setInputDockCollapsed(!state.inputDockCollapsed);
+    setInputDockOpen(!document.body.classList.contains("input-panel-open"));
   }
 
   function setInputDockCollapsed(collapsed) {
-    state.inputDockCollapsed = Boolean(collapsed);
+    setInputDockOpen(!collapsed);
+  }
+
+  function toggleRawPanel(mode = "meta") {
+    const isSamePanelOpen = document.body.classList.contains("raw-panel-open") && rawPanelMode === mode;
+    setRawPanelOpen(!isSamePanelOpen, mode);
+  }
+
+  function toggleToolsPanel() {
+    setToolsPanelOpen(!document.body.classList.contains("tools-panel-open"));
+  }
+
+  function setInputDockOpen(open) {
+    const isOpen = Boolean(open);
+    if (isOpen && isInputPopupMode()) {
+      setToolsPanelOpen(false);
+      setRawPanelOpen(false);
+    }
+    const keepBottomVisible = isOpen && isStepsNearBottom();
+    state.inputDockCollapsed = !isOpen;
     renderInputDock();
+    if (keepBottomVisible) {
+      window.requestAnimationFrame(scrollStepsToBottom);
+    }
+  }
+
+  function setRawPanelOpen(open, mode = rawPanelMode) {
+    const isOpen = Boolean(open);
+    if (mode === "meta" || mode === "syntax") rawPanelMode = mode;
+    if (isOpen && isInputPopupMode()) {
+      setToolsPanelOpen(false);
+      setInputDockOpen(false);
+    }
+    document.body.classList.toggle("raw-panel-open", isOpen);
+    document.body.classList.toggle("raw-mode-meta", isOpen && rawPanelMode === "meta");
+    document.body.classList.toggle("raw-mode-syntax", isOpen && rawPanelMode === "syntax");
+    updateRawPanelButtons(isOpen);
+  }
+
+  function updateRawPanelButtons(isOpen = document.body.classList.contains("raw-panel-open")) {
+    const isMetaOpen = isOpen && rawPanelMode === "meta";
+    const isSyntaxOpen = isOpen && rawPanelMode === "syntax";
+    if (el.metaPanelToggle) {
+      el.metaPanelToggle.setAttribute("aria-expanded", isMetaOpen ? "true" : "false");
+      el.metaPanelToggle.classList.toggle("active", isMetaOpen);
+    }
+    if (el.syntaxPanelToggle) {
+      el.syntaxPanelToggle.setAttribute("aria-expanded", isSyntaxOpen ? "true" : "false");
+      el.syntaxPanelToggle.classList.toggle("active", isSyntaxOpen);
+    }
+    if (el.rawPanelTitle) {
+      el.rawPanelTitle.textContent = rawPanelMode === "syntax" ? "Syntax / 檢查" : "輸出 .amc";
+    }
+  }
+
+  function setToolsPanelOpen(open) {
+    const isOpen = Boolean(open) && isToolsPopupMode();
+    if (isOpen && isInputPopupMode()) {
+      setRawPanelOpen(false);
+      setInputDockOpen(false);
+    }
+    document.body.classList.toggle("tools-panel-open", isOpen);
+    if (el.toolsPanelToggle) {
+      el.toolsPanelToggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      el.toolsPanelToggle.classList.toggle("is-active", isOpen);
+    }
+  }
+
+  function closeAnyFloatingPanel() {
+    const hadOpenPanel = document.body.classList.contains("tools-panel-open")
+      || document.body.classList.contains("input-panel-open")
+      || document.body.classList.contains("raw-panel-open");
+    if (!hadOpenPanel) return false;
+    setToolsPanelOpen(false);
+    setInputDockOpen(false);
+    setRawPanelOpen(false);
+    return true;
+  }
+
+  function scheduleMinimumWorkspaceModeSync() {
+    if (resizeSyncScheduled) return;
+    resizeSyncScheduled = true;
+    window.requestAnimationFrame(() => {
+      resizeSyncScheduled = false;
+      syncMinimumWorkspaceMode();
+    });
+  }
+
+  function syncMinimumWorkspaceMode() {
+    const { minWidth, minHeight } = getWorkspaceMinimums();
+    const effectiveWidth = Math.max(window.innerWidth, minWidth);
+    const belowMinimum = window.innerWidth < minWidth || window.innerHeight < minHeight;
+    const mode = {
+      belowMinimum,
+      over1220: effectiveWidth > 1220,
+      over820: effectiveWidth > 820,
+      over799: effectiveWidth > 799
+    };
+
+    if (!lastWorkspaceMode
+      || lastWorkspaceMode.belowMinimum !== mode.belowMinimum
+      || lastWorkspaceMode.over1220 !== mode.over1220
+      || lastWorkspaceMode.over820 !== mode.over820
+      || lastWorkspaceMode.over799 !== mode.over799) {
+      document.body.classList.toggle("min-workspace-scroll", mode.belowMinimum);
+      document.body.classList.toggle("effective-over-1220", mode.over1220);
+      document.body.classList.toggle("effective-over-820", mode.over820);
+      document.body.classList.toggle("effective-over-799", mode.over799);
+      lastWorkspaceMode = mode;
+    }
+
+    if (mode.belowMinimum) resetWindowVerticalScroll();
+  }
+
+  function getWorkspaceMinimums() {
+    if (workspaceMinimumsCache) return workspaceMinimumsCache;
+    const styles = getComputedStyle(document.documentElement);
+    workspaceMinimumsCache = {
+      minWidth: cssPixelValue(styles.getPropertyValue("--app-min-width"), 0),
+      minHeight: cssPixelValue(styles.getPropertyValue("--app-min-height"), 0)
+    };
+    return workspaceMinimumsCache;
+  }
+
+  function getEffectiveLayoutWidth() {
+    const { minWidth } = getWorkspaceMinimums();
+    return Math.max(window.innerWidth, minWidth);
+  }
+
+  function cssPixelValue(value, fallback) {
+    const parsed = Number.parseFloat(String(value || "").trim());
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  function resetWindowVerticalScroll() {
+    const scrollY = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+    if (!scrollY) return;
+    const scrollX = window.scrollX || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
+    window.scrollTo(scrollX, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }
+
+  function isToolsPopupMode() {
+    return getEffectiveLayoutWidth() <= 1220;
+  }
+
+  function isInputPopupMode() {
+    return false;
+  }
+
+  function isStepsNearBottom() {
+    if (!el.steps) return false;
+    const remaining = el.steps.scrollHeight - el.steps.scrollTop - el.steps.clientHeight;
+    const pageRemaining = document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
+    return remaining < 120 || pageRemaining < 120;
+  }
+
+  function scrollStepsToBottom() {
+    if (el.steps) el.steps.scrollTop = el.steps.scrollHeight;
+    if (document.body.classList.contains("min-workspace-scroll")) {
+      resetWindowVerticalScroll();
+      return;
+    }
+    window.scrollTo(0, document.documentElement.scrollHeight);
+  }
+
+  function initCoordinatePickerMessaging() {
+    window.addEventListener("message", onPickerWindowMessage);
+    if ("BroadcastChannel" in window) {
+      pickerChannel = new BroadcastChannel(PICKER_CHANNEL_NAME);
+      pickerChannel.addEventListener("message", onPickerChannelMessage);
+    }
+  }
+
+  function openCoordinatePicker() {
+    const pickerUrl = new URL("picker.html", window.location.href).href;
+    const left = Math.max(0, Math.round(window.screenX + 48));
+    const top = Math.max(0, Math.round(window.screenY + 88));
+    pickerWindow = window.open(
+      pickerUrl,
+      "x7-coordinate-picker",
+      `popup=yes,width=270,height=350,left=${left},top=${top},resizable=yes,scrollbars=no`
+    );
+    if (!pickerWindow) {
+      setCoordinateStatus("取點視窗被瀏覽器封鎖，請允許此頁面開啟彈出視窗");
+      return;
+    }
+    pickerWindow.focus();
+    setCoordinateStatus("已開啟取點視窗，可連續取點後回主視窗套用");
+    window.setTimeout(sendPickerSync, 150);
+  }
+
+  function onPickerWindowMessage(event) {
+    handlePickerMessage(event.data);
+  }
+
+  function onPickerChannelMessage(event) {
+    handlePickerMessage(event.data);
+  }
+
+  function handlePickerMessage(data) {
+    if (!data || data.app !== PICKER_APP_ID || data.source !== "picker") return;
+    if (hasProcessedPickerMessage(data.id)) return;
+
+    if (data.command === "ready" || data.command === "requestSync") {
+      sendPickerSync();
+      return;
+    }
+    if (data.command === "pointsChanged") {
+      syncPickerPoints(data.points);
+      return;
+    }
+    if (data.command === "setAbsolute") {
+      setAbsoluteFromPicker(data);
+      return;
+    }
+    if (data.command === "setRelative") {
+      setRelativeFromPicker(data);
+      return;
+    }
+  }
+
+  function hasProcessedPickerMessage(id) {
+    if (!id) return false;
+    if (processedPickerMessageIds.has(id)) return true;
+    processedPickerMessageIds.add(id);
+    if (processedPickerMessageIds.size > 80) {
+      const first = processedPickerMessageIds.values().next().value;
+      processedPickerMessageIds.delete(first);
+    }
+    return false;
+  }
+
+  function setAbsoluteFromPicker(data, announce = true) {
+    const x = coordinateString(data.x);
+    const y = coordinateString(data.y);
+    const changedX = el.moveAbsX.value !== x;
+    const changedY = el.moveAbsY.value !== y;
+    el.moveAbsX.value = x;
+    el.moveAbsY.value = y;
+    flashChangedCoordinate(el.moveAbsX, changedX);
+    flashChangedCoordinate(el.moveAbsY, changedY);
+    if (announce) setCoordinateStatus(`取點視窗已寫入絕對座標：X ${x} / Y ${y}`);
+    sendPickerSync();
+  }
+
+  function setRelativeFromPicker(data, announce = true) {
+    const x = coordinateString(data.x);
+    const y = coordinateString(data.y);
+    const changedX = el.moveRelX.value !== x;
+    const changedY = el.moveRelY.value !== y;
+    el.moveRelX.value = x;
+    el.moveRelY.value = y;
+    flashChangedCoordinate(el.moveRelX, changedX);
+    flashChangedCoordinate(el.moveRelY, changedY);
+    if (announce) setCoordinateStatus(`取點視窗已寫入相對座標：X ${x} / Y ${y}`);
+    sendPickerSync();
+  }
+
+  function syncPickerPoints(points) {
+    pickerPoints = normalizePickerPoints(points);
+    renderCoordinatePointSelects();
+    setCoordinateStatus(pickerPoints.length ? `取點清單已同步：${pickerPoints.length} 個` : "取點清單已清空");
+  }
+
+  function normalizePickerPoints(points) {
+    if (!Array.isArray(points)) return [];
+    return points.slice(0, 50).map((point, index) => ({
+      id: String(point.id || `point-${index + 1}`),
+      x: coordinateString(point.x),
+      y: coordinateString(point.y),
+      note: String(point.note || "").trim()
+    }));
+  }
+
+  function renderCoordinatePointSelects() {
+    renderCoordinatePointSelect(el.absPointSelect, "選取絕對座標");
+    renderCoordinatePointSelect(el.relPointSelect, "選取相對目標");
+  }
+
+  function renderCoordinatePointSelect(select, placeholder) {
+    if (!select) return;
+    const current = select.value;
+    select.innerHTML = "";
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = pickerPoints.length ? placeholder : "尚未有取點";
+    select.appendChild(empty);
+    pickerPoints.forEach((point, index) => {
+      const option = document.createElement("option");
+      option.value = point.id;
+      option.textContent = coordinatePointLabel(point, index);
+      select.appendChild(option);
+    });
+    select.disabled = !pickerPoints.length;
+    select.value = pickerPoints.some((point) => point.id === current) ? current : "";
+  }
+
+  function coordinatePointLabel(point, index) {
+    const note = point.note ? `${point.note} ` : "";
+    return `${index + 1}. ${note}X ${point.x} / Y ${point.y}`;
+  }
+
+  function findPickerPoint(pointId) {
+    return pickerPoints.find((point) => point.id === pointId);
+  }
+
+  function applyCapturedPointToAbsolute(pointId) {
+    const point = findPickerPoint(pointId);
+    if (!point) return;
+    setAbsoluteFromPicker({ x: point.x, y: point.y }, true);
+    el.absPointSelect.value = "";
+    setCoordinateStatus(`已套用絕對清單：${coordinatePointLabel(point, pickerPoints.indexOf(point))}`);
+  }
+
+  function applyCapturedPointToRelative(pointId) {
+    const point = findPickerPoint(pointId);
+    if (!point) return;
+    const baseX = numberOr(el.moveAbsX.value, 0);
+    const baseY = numberOr(el.moveAbsY.value, 0);
+    const x = numberOr(point.x, 0) - baseX;
+    const y = numberOr(point.y, 0) - baseY;
+    setRelativeFromPicker({ x, y }, true);
+    el.relPointSelect.value = "";
+    setCoordinateStatus(`已套用相對清單：X ${x} / Y ${y}`);
+  }
+
+  function flashChangedCoordinate(input, changed) {
+    if (!changed || !input) return;
+    if (!document.hasFocus() || document.visibilityState !== "visible") {
+      state.pendingCoordinateFlashIds.add(input.id);
+      return;
+    }
+    flashCoordinateInputNow(input);
+  }
+
+  function flushPendingCoordinateFlashes() {
+    if (!state.pendingCoordinateFlashIds.size) return;
+    if (!document.hasFocus() || document.visibilityState !== "visible") return;
+    const ids = Array.from(state.pendingCoordinateFlashIds);
+    state.pendingCoordinateFlashIds.clear();
+    ids.forEach((id) => flashCoordinateInputNow(document.getElementById(id)));
+  }
+
+  function flashCoordinateInputNow(input) {
+    if (!input) return;
+    input.classList.remove("coordinate-changed");
+    void input.offsetWidth;
+    input.classList.add("coordinate-changed");
+    window.setTimeout(() => input.classList.remove("coordinate-changed"), 1200);
+  }
+
+  function sendPickerSync() {
+    postPickerMessage({
+      command: "sync",
+      values: {
+        absolute: {
+          x: coordinateString(el.moveAbsX.value),
+          y: coordinateString(el.moveAbsY.value)
+        },
+        relative: {
+          x: coordinateString(el.moveRelX.value),
+          y: coordinateString(el.moveRelY.value)
+        }
+      },
+      points: pickerPoints
+    });
+  }
+
+  function postPickerMessage(message) {
+    const payload = { app: PICKER_APP_ID, source: "main", ...message };
+    if (pickerWindow && !pickerWindow.closed) pickerWindow.postMessage(payload, "*");
+    if (pickerChannel) pickerChannel.postMessage(payload);
+  }
+
+  function coordinateString(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? String(Math.round(number)) : "0";
   }
 
   function startCoordinateCapture(mode, event) {
@@ -618,6 +953,7 @@
       el.moveAbsX.value = String(x);
       el.moveAbsY.value = String(y);
       setCoordinateStatus(`已取絕對座標：X ${x} / Y ${y}`);
+      sendPickerSync();
       return;
     }
 
@@ -628,6 +964,7 @@
     el.moveRelX.value = String(relX);
     el.moveRelY.value = String(relY);
     setCoordinateStatus(`已取相對座標：X ${relX} / Y ${relY}（目標 ${x}, ${y}）`);
+    sendPickerSync();
   }
 
   function showCoordinateOverlay(mode, event) {
@@ -681,13 +1018,13 @@
 
   function updateHeldMode(event) {
     if (event.ctrlKey) state.heldMode = "down";
-    else if (event.altKey) state.heldMode = "up";
+    else if (event.shiftKey) state.heldMode = "up";
     else state.heldMode = "tap";
     if (el.keyboardMode) {
-      el.keyboardMode.textContent = state.heldMode === "down" ? "Ctrl：按下" : state.heldMode === "up" ? "Alt：彈起" : "一般：按一下";
+      el.keyboardMode.textContent = state.heldMode === "down" ? "Ctrl：按下" : state.heldMode === "up" ? "Shift：彈起" : "一般：按一下";
     }
     if (el.mouseMode) {
-      el.mouseMode.textContent = state.heldMode === "down" ? "Ctrl：按下" : state.heldMode === "up" ? "Alt：彈起" : "一般：點擊";
+      el.mouseMode.textContent = state.heldMode === "down" ? "Ctrl：按下" : state.heldMode === "up" ? "Shift：彈起" : "一般：點一下";
     }
   }
 
@@ -724,14 +1061,17 @@
       type: "mouseClick",
       button: item.button,
       count: "1",
-      downDelay: valueOr(el.tapDelayInput.value, "64"),
-      upDelay: valueOr(el.tapReleaseDelayInput.value, "64")
+      downDelay: valueOr(el.mouseTapDelayInput.value, "64"),
+      upDelay: valueOr(el.mouseTapReleaseDelayInput.value, "64")
     }];
   }
 
   function addFromTool(kind) {
     const rows = [];
     switch (kind) {
+      case "flowCombo":
+        insertCommonFlowCombo();
+        return;
       case "delay":
         rows.push({ type: "delay", value: valueOr(el.delayValue.value, "0"), unit: el.delayUnit.value });
         break;
@@ -755,25 +1095,53 @@
           target: valueOr(el.ifKeyTarget.value, "1")
         });
         break;
-      case "varIf": {
-        const right = el.condRightKind.value === "var" ? el.condRightVar.value : valueOr(el.condRightNumber.value, "0");
+      case "varIfNumber": {
         rows.push({
           type: "varIf",
-          left: el.condLeft.value,
-          operator: el.condOp.value,
-          rightKind: el.condRightKind.value,
-          right,
-          target: valueOr(el.condTarget.value, "1")
+          left: el.condNumberLeft.value,
+          operator: el.condNumberOp.value,
+          rightKind: "number",
+          right: valueOr(el.condNumberValue.value, "0"),
+          target: valueOr(el.condNumberTarget.value, "1")
         });
         break;
       }
-      case "varSet":
+      case "varIfVar": {
+        rows.push({
+          type: "varIf",
+          left: el.condVarLeft.value,
+          operator: el.condVarOp.value,
+          rightKind: "var",
+          right: el.condVarRight.value,
+          target: valueOr(el.condVarTarget.value, "1")
+        });
+        break;
+      }
+      case "varSetNumber":
         rows.push({
           type: "varSet",
-          left: el.assignLeft.value,
-          mode: el.assignMode.value,
-          source: el.assignSource.value,
-          value: valueOr(el.assignNumber.value, "0")
+          left: el.assignNumberLeft.value,
+          mode: "number",
+          source: el.assignNumberLeft.value,
+          value: valueOr(el.assignNumberValue.value, "0")
+        });
+        break;
+      case "varSetVar":
+        rows.push({
+          type: "varSet",
+          left: el.assignVarLeft.value,
+          mode: "var",
+          source: el.assignVarSource.value,
+          value: "0"
+        });
+        break;
+      case "varSetAdd":
+        rows.push({
+          type: "varSet",
+          left: el.assignAddLeft.value,
+          mode: "add",
+          source: el.assignAddSource.value,
+          value: valueOr(el.assignAddValue.value, "0")
         });
         break;
       case "rawLine":
@@ -789,6 +1157,89 @@
         return;
     }
     insertRows(rows);
+  }
+
+  function applyDelayAssist(kind) {
+    const config = delayAssistConfig(kind);
+    if (!config) return;
+    const value = assistDelayValue(el[config.inputId]);
+    const result = updateAdjacentDelays(kind, value);
+    if (result.changed) syncAfterEdit(true);
+    setStatus(result.matches
+      ? `${config.label}：修改 ${result.changed} 個延遲，符合 ${result.matches} 個位置`
+      : `${config.label}：沒有找到可修改的延遲`);
+  }
+
+  function delayAssistConfig(kind) {
+    const configs = {
+      mouseDown: { inputId: "assistMouseDownDelay", label: "滑鼠按下延遲" },
+      mouseUp: { inputId: "assistMouseUpDelay", label: "滑鼠彈起延遲" },
+      keyDown: { inputId: "assistKeyDownDelay", label: "鍵盤按下延遲" },
+      keyUp: { inputId: "assistKeyUpDelay", label: "鍵盤彈起延遲" }
+    };
+    return configs[kind];
+  }
+
+  function assistDelayValue(input) {
+    const value = String(Math.max(0, numberOr(input && input.value, 0)));
+    if (input) input.value = value;
+    return value;
+  }
+
+  function updateAdjacentDelays(kind, value) {
+    const rows = state.macro.rows || [];
+    const result = { matches: 0, changed: 0 };
+
+    rows.forEach((row, index) => {
+      if (!row || row.type === "package") return;
+
+      if (row.type === "keyTap" && (kind === "keyDown" || kind === "keyUp")) {
+        const field = kind === "keyDown" ? "downDelay" : "upDelay";
+        updateDelayField(row, field, value, result);
+        return;
+      }
+
+      if (row.type === "mouseClick" && (kind === "mouseDown" || kind === "mouseUp")) {
+        const field = kind === "mouseDown" ? "downDelay" : "upDelay";
+        updateDelayField(row, field, value, result);
+        return;
+      }
+
+      if (!isDelayTriggerRow(row, kind)) return;
+      updateDelayRow(rows[index + 1], value, result);
+    });
+
+    return result;
+  }
+
+  function updateDelayField(row, field, value, result) {
+    result.matches += 1;
+    if (String(row[field] || row.delay || "") === value) return;
+    row[field] = value;
+    result.changed += 1;
+  }
+
+  function updateDelayRow(row, value, result) {
+    if (!row || row.type !== "delay") return;
+    result.matches += 1;
+    if (String(row.value || "") === value && (row.unit || "ms") === "ms") return;
+    row.value = value;
+    row.unit = "ms";
+    result.changed += 1;
+  }
+
+  function isDelayTriggerRow(row, kind) {
+    if (row.type === "key") {
+      const command = String(row.command || "").toLowerCase();
+      return (kind === "keyDown" && command === "keydown")
+        || (kind === "keyUp" && command === "keyup");
+    }
+
+    if (row.type !== "mouse") return false;
+    const info = core.MOUSE_COMMANDS.find((command) => command.id === row.command);
+    if (!info || info.button === "Wheel") return false;
+    return (kind === "mouseDown" && info.phase === "Down")
+      || (kind === "mouseUp" && info.phase === "Up");
   }
 
   function mouseClickRows(command, delay, releaseDelay) {
@@ -819,7 +1270,59 @@
     syncAfterEdit(true);
   }
 
+  function insertCommonFlowCombo() {
+    const combo = templates.makeCommonFlowCombo({
+      kind: el.commonFlowCombo.value,
+      variable: el.commonFlowVar.value || "varE",
+      times: numberOr(el.commonFlowTimes.value, 3),
+      delay: numberOr(el.commonFlowDelay.value, 100)
+    });
+    insertRowsWithInternalLinks(combo.rows, combo.links, combo.selectRow);
+    setStatus(`已加入常用組合：${combo.label}`);
+  }
+
+  function insertRowsWithInternalLinks(rows, links, selectRow) {
+    const list = state.macro.rows;
+    const index = state.selectedIndex === null ? list.length : state.selectedIndex + 1;
+    const insertionLine = syntaxLineAtInsertIndex(list, index);
+    const lineDelta = core.lineCountForRows(rows);
+    const refs = collectFlowReferences(list);
+    list.splice(index, 0, ...rows);
+    applyInternalFlowLinks(links, list);
+    remapFlowReferences(refs, list, (oldLine) => oldLine >= insertionLine ? oldLine + lineDelta : oldLine);
+    const selected = selectRow ? list.indexOf(selectRow) : -1;
+    state.selectedIndex = selected >= 0 ? selected : index + rows.length - 1;
+    state.expandedIndex = state.autoExpand ? state.selectedIndex : null;
+    syncAfterEdit(true);
+  }
+
+  function applyInternalFlowLinks(links, rows) {
+    (links || []).forEach((link) => {
+      if (!link || !link.source || !link.target || !link.field) return;
+      const targetIndex = rows.indexOf(link.target);
+      if (targetIndex < 0) return;
+      const span = core.syntaxLineSpan(rows, targetIndex);
+      link.source[link.field] = String(span.start + Math.min(link.targetOffset || 0, span.length - 1));
+    });
+  }
+
   function onStepClick(event) {
+    const flowJump = event.target.closest("[data-flow-jump]");
+    if (flowJump) {
+      focusFlowRow(Number(flowJump.dataset.flowJump));
+      return;
+    }
+    const flowSources = event.target.closest("[data-flow-sources]");
+    if (flowSources) {
+      const index = Number(flowSources.dataset.flowSources);
+      if (Number.isInteger(index)) {
+        state.selectedIndex = index;
+        state.expandedIndex = state.autoExpand ? index : null;
+        renderSteps();
+        renderStatus();
+      }
+      return;
+    }
     const operation = event.target.closest("[data-op]");
     if (operation) {
       runRowOperation(operation.dataset.op, Number(operation.dataset.index));
@@ -834,6 +1337,37 @@
     renderStatus();
   }
 
+  function onStepPointerOver(event) {
+    const rowEl = event.target.closest(".step-row");
+    if (!rowEl || !el.steps.contains(rowEl)) return;
+    const index = Number(rowEl.dataset.index);
+    if (!Number.isInteger(index) || state.hoverFlowIndex === index) return;
+    state.hoverFlowIndex = index;
+    renderFlowOverlay(latestFlowMap);
+  }
+
+  function onStepPointerLeave() {
+    if (state.hoverFlowIndex === null) return;
+    state.hoverFlowIndex = null;
+    renderFlowOverlay(latestFlowMap);
+  }
+
+  function focusFlowRow(index) {
+    if (!Number.isInteger(index) || index < 0 || index >= state.macro.rows.length) return;
+    state.selectedIndex = index;
+    if (state.autoExpand) state.expandedIndex = index;
+    renderSteps();
+    renderStatus();
+    const rowEl = el.steps.querySelector(`.step-row[data-index="${index}"]`);
+    if (!rowEl) return;
+    rowEl.scrollIntoView({ block: "center", behavior: "smooth" });
+    rowEl.classList.add("flow-focus");
+    window.setTimeout(() => {
+      const current = el.steps.querySelector(`.step-row[data-index="${index}"]`);
+      if (current) current.classList.remove("flow-focus");
+    }, 1200);
+  }
+
   function onStepPointerDown(event) {
     state.dragHandleArmed = Boolean(event.target.closest(".line-number"));
   }
@@ -846,6 +1380,7 @@
     }
     state.dragIndex = Number(rowEl.dataset.index);
     rowEl.classList.add("dragging");
+    el.steps.classList.add("dragging-list");
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", String(state.dragIndex));
     event.dataTransfer.setDragImage(getTransparentDragImage(), 0, 0);
@@ -857,12 +1392,9 @@
     if (!rowEl) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
-    clearDropTargets();
     const targetIndex = Number(rowEl.dataset.index);
     const placement = dropPlacement(rowEl, event.clientY);
-    rowEl.classList.add(placement === "before" ? "drop-before" : "drop-after");
-    rowEl.dataset.dropPlacement = placement;
-    rowEl.dataset.dropIndex = String(targetIndex);
+    setDropTarget(rowEl, placement, targetIndex);
   }
 
   function onStepDragLeave(event) {
@@ -878,16 +1410,26 @@
     const rowEl = event.target.closest(".step-row");
     if (!rowEl) return;
     event.preventDefault();
+    const fromIndex = state.dragIndex;
     const targetIndex = Number(rowEl.dataset.index);
     const placement = rowEl.dataset.dropPlacement || dropPlacement(rowEl, event.clientY);
-    moveRowByDrag(state.dragIndex, targetIndex, placement);
+    moveRowByDrag(fromIndex, targetIndex, placement);
+    finishStepDrag();
   }
 
   function onStepDragEnd() {
+    finishStepDrag();
+  }
+
+  function finishStepDrag() {
     state.dragIndex = null;
     state.dragHandleArmed = false;
+    state.hoverFlowIndex = null;
+    if (!el.steps) return;
+    el.steps.classList.remove("dragging-list");
     clearDropTargets();
     el.steps.querySelectorAll(".step-row.dragging").forEach((rowEl) => rowEl.classList.remove("dragging"));
+    renderFlowOverlay(latestFlowMap);
   }
 
   function moveRowByDrag(fromIndex, targetIndex, placement) {
@@ -921,11 +1463,22 @@
   }
 
   function clearDropTargets() {
-    el.steps.querySelectorAll(".drop-before,.drop-after").forEach((rowEl) => {
-      rowEl.classList.remove("drop-before", "drop-after");
-      delete rowEl.dataset.dropPlacement;
-      delete rowEl.dataset.dropIndex;
-    });
+    if (!activeDropRow) return;
+    activeDropRow.classList.remove("drop-before", "drop-after");
+    delete activeDropRow.dataset.dropPlacement;
+    delete activeDropRow.dataset.dropIndex;
+    activeDropRow = null;
+    activeDropPlacement = "";
+  }
+
+  function setDropTarget(rowEl, placement, targetIndex) {
+    if (activeDropRow === rowEl && activeDropPlacement === placement) return;
+    clearDropTargets();
+    activeDropRow = rowEl;
+    activeDropPlacement = placement;
+    rowEl.classList.add(placement === "before" ? "drop-before" : "drop-after");
+    rowEl.dataset.dropPlacement = placement;
+    rowEl.dataset.dropIndex = String(targetIndex);
   }
 
   function getTransparentDragImage() {
@@ -1176,39 +1729,41 @@
     renderRaw();
     renderStatus();
     renderInputDock();
+    renderCoordinatePointSelects();
   }
 
   function renderInputDock() {
     if (!el.inputDock) return;
-    el.inputDock.classList.toggle("collapsed", state.inputDockCollapsed);
-    el.inputDockToggle.checked = state.inputDockCollapsed;
-    el.inputDockToggle.setAttribute("aria-pressed", state.inputDockCollapsed ? "true" : "false");
-    el.inputDockToggle.closest(".toggle-chip").title = state.inputDockCollapsed ? "S：展開鍵盤滑鼠" : "S：收合鍵盤滑鼠";
-    el.inputDockRestore.setAttribute("aria-hidden", state.inputDockCollapsed ? "false" : "true");
+    const isOpen = !state.inputDockCollapsed;
+    document.body.classList.toggle("input-panel-open", isOpen);
+    el.inputDock.classList.toggle("collapsed", !isOpen);
+    el.inputDockToggle.checked = isOpen;
+    el.inputDockToggle.setAttribute("aria-pressed", isOpen ? "true" : "false");
+    el.inputDockToggle.closest(".toggle-chip").classList.toggle("is-active", isOpen);
+    el.inputDockToggle.closest(".toggle-chip").title = isOpen ? "S：關閉鍵盤滑鼠" : "S：開啟鍵盤滑鼠";
+    el.inputDockRestore.setAttribute("aria-hidden", "true");
   }
 
   function renderMeta() {
-    el.fileName.textContent = state.fileName || "未命名.amc";
-    el.encodingName.textContent = encodingLabel(state.encoding);
-    el.saveNameInput.value = state.saveBaseName || "未命名";
     el.commentInput.value = state.macro.comment || "";
     el.softwareInput.value = state.macro.software || "";
     el.descriptionInput.value = state.macro.description || "";
     el.autoExpandToggle.checked = state.autoExpand;
-    document.querySelectorAll("input[name='repeatType']").forEach((input) => {
-      input.checked = input.value === String(state.macro.repeatType || "0");
-    });
+    el.repeatTypeSelect.value = String(state.macro.repeatType || "0");
   }
 
   function renderSteps() {
     const rows = state.macro.rows || [];
     el.steps.innerHTML = "";
+    latestSyntaxLines = syntaxTextToLines(core.buildSyntax(rows));
     if (!rows.length) {
+      latestFlowMap = null;
       el.steps.innerHTML = `<div class="empty-state"><strong>尚未有指令</strong></div>`;
       return;
     }
     const fragment = document.createDocumentFragment();
     const flowMap = buildFlowVisualMap(rows);
+    latestFlowMap = flowMap;
     rows.forEach((row, index) => fragment.appendChild(createRowElement(row, index, flowMap[index])));
     el.steps.appendChild(fragment);
     renderFlowOverlay(flowMap);
@@ -1229,6 +1784,32 @@
     wrapper.dataset.index = String(index);
     wrapper.draggable = true;
     if (flowMeta.loopDepth) wrapper.style.setProperty("--loop-depth", String(Math.min(flowMeta.loopDepth, 3)));
+    const hasFlowTarget = Number.isInteger(flowMeta.targetIndex);
+    const flowChip = flowMeta.chip
+      ? hasFlowTarget
+        ? `<button class="flow-chip flow-jump-chip" data-flow-jump="${flowMeta.targetIndex}" type="button" title="${escapeAttr(flowMeta.title || "跳到目標列")}">${escapeHtml(flowMeta.chip)}</button>`
+        : `<span class="flow-chip">${escapeHtml(flowMeta.chip)}</span>`
+      : `<span class="flow-chip empty"></span>`;
+    const inboundSources = Array.isArray(flowMeta.inboundSources) ? flowMeta.inboundSources : [];
+    const inboundTitle = inboundSources.length
+      ? `被第 ${inboundSources.map((source) => source.line).join("、")} 行參照`
+      : "";
+    const inboundButtons = inboundSources.map((source) =>
+      `<button class="flow-chip inbound-chip" data-flow-jump="${source.index}" type="button" title="${escapeAttr(source.title)}">${escapeHtml(`被 ${source.line}`)}</button>`
+    ).join("");
+    const inboundChips = inboundSources.length > 1
+      ? `<button class="flow-chip inbound-chip inbound-count" data-flow-sources="${index}" type="button" title="${escapeAttr(inboundTitle)}">被 ${inboundSources.length} 處</button>`
+      : inboundSources.length === 1
+        ? `<span class="inbound-chip-group" title="${escapeAttr(inboundTitle)}">${inboundButtons}</span>`
+        : `<span class="inbound-chip-group empty"></span>`;
+    const flowSourcesDetail = state.selectedIndex === index && inboundSources.length > 1
+      ? `<div class="flow-sources-detail"><span>來源</span>${inboundButtons}</div>`
+      : "";
+    const splitButton = row.type === "keyTap"
+      ? `<button class="icon-button" data-op="splitTap" data-index="${index}" type="button" title="拆解按一下">拆</button>`
+      : row.type === "mouseClick"
+        ? `<button class="icon-button" data-op="splitMouseClick" data-index="${index}" type="button" title="拆解滑鼠點擊">拆</button>`
+        : `<span class="icon-button action-placeholder" aria-hidden="true"></span>`;
     wrapper.innerHTML = `
       <div class="flow-rail ${flowMeta.railClass || ""}" title="${escapeAttr(flowMeta.title || "")}">
         ${flowRailHtml(flowMeta)}
@@ -1236,19 +1817,19 @@
       <div class="line-number" title="拖曳排序">${span.start === span.end ? span.start : `${span.start}-${span.end}`}</div>
       <div class="step-summary">
         <span class="badge">${rowTypeLabel(row)}</span>
-        <span class="flow-chip ${flowMeta.chip ? "" : "empty"}">${escapeHtml(flowMeta.chip || "")}</span>
+        ${flowChip}
+        ${inboundChips}
         <strong>${escapeHtml(rowSummary(row))}</strong>
-        <code>${escapeHtml(core.serializeRow(row)) || "&nbsp;"}</code>
       </div>
       <div class="row-actions">
-        ${row.type === "keyTap" ? `<button class="icon-button" data-op="splitTap" data-index="${index}" type="button" title="拆解按一下">拆</button>` : ""}
-        ${row.type === "mouseClick" ? `<button class="icon-button" data-op="splitMouseClick" data-index="${index}" type="button" title="拆解滑鼠點擊">拆</button>` : ""}
+        ${splitButton}
         <button class="icon-button" data-op="edit" data-index="${index}" type="button" title="展開/收合編輯">編</button>
         <button class="icon-button" data-op="up" data-index="${index}" type="button" title="上移">↑</button>
         <button class="icon-button" data-op="down" data-index="${index}" type="button" title="下移">↓</button>
         <button class="icon-button" data-op="duplicate" data-index="${index}" type="button" title="複製">⧉</button>
         <button class="icon-button danger" data-op="delete" data-index="${index}" type="button" title="刪除">×</button>
       </div>
+      ${flowSourcesDetail}
       ${state.expandedIndex === index ? `<div class="step-editor">${rowFieldsHtml(row, index)}</div>` : ""}
     `;
     return wrapper;
@@ -1274,6 +1855,8 @@
     }));
 
     const loopRanges = [];
+    const flowLinks = [];
+    let flowLinkId = 0;
 
     list.forEach((row, index) => {
       const refs = flowRefs(row);
@@ -1291,6 +1874,7 @@
           : isLoop
             ? `↻ ${targetLine}-${currentSpan.end}${row.type === "goWhile" ? ` ×${row.times || "1"}` : ""}`
             : `→ ${targetLine}`;
+        if (!invalid) map[index].targetIndex = targetIndex;
         map[index].title = invalid
           ? `找不到第 ${ref.line} 行`
           : `${ref.label} 到第 ${targetLine} 行`;
@@ -1306,8 +1890,29 @@
         ].filter(Boolean).join(" ");
 
         if (!invalid) {
+          const link = {
+            id: flowLinkId,
+            sourceIndex: index,
+            targetIndex,
+            sourceLine: currentSpan.start,
+            targetLine,
+            isLoop,
+            kind: ref.kind
+          };
+          flowLinks.push(link);
+          flowLinkId += 1;
+
           map[targetIndex].rowClass = [map[targetIndex].rowClass, "flow-target"].filter(Boolean).join(" ");
           map[targetIndex].title = map[targetIndex].title || `被第 ${currentSpan.start} 行參照`;
+          map[targetIndex].inboundSources = map[targetIndex].inboundSources || [];
+          if (!map[targetIndex].inboundSources.some((source) => source.index === index && source.targetLine === targetLine)) {
+            map[targetIndex].inboundSources.push({
+              index,
+              line: currentSpan.start,
+              targetLine,
+              title: `回到第 ${currentSpan.start} 行`
+            });
+          }
           if (targetLine > spans[targetIndex].start) {
             map[targetIndex].rowClass = [map[targetIndex].rowClass, "flow-inner-target"].filter(Boolean).join(" ");
             map[targetIndex].title = `被第 ${currentSpan.start} 行參照到內部第 ${targetLine} 行`;
@@ -1316,7 +1921,7 @@
           if (isLoop) {
             const from = Math.min(index, targetIndex);
             const to = Math.max(index, targetIndex);
-            loopRanges.push({ from, to, sourceIndex: index });
+            loopRanges.push({ from, to, sourceIndex: index, linkId: link.id });
           }
         }
       });
@@ -1324,6 +1929,8 @@
 
     const assignedLoops = assignLoopLanes(loopRanges);
     assignedLoops.forEach((loop) => {
+      const link = flowLinks.find((item) => item.id === loop.linkId);
+      if (link) link.lane = loop.lane;
       for (let rowIndex = loop.from; rowIndex <= loop.to; rowIndex += 1) {
         map[rowIndex].loopDepth += 1;
         if (loop.lane >= 3) map[rowIndex].overflowLoops = (map[rowIndex].overflowLoops || 0) + 1;
@@ -1335,6 +1942,7 @@
       map[loop.to].rowClass = [map[loop.to].rowClass, "loop-end"].filter(Boolean).join(" ");
     });
 
+    map.flowLinks = flowLinks;
     map.overlayLoops = assignedLoops.filter((loop) => loop.lane < 3);
     return map;
   }
@@ -1362,12 +1970,32 @@
     return `${overflow}<span class="${markerClass}">${escapeHtml(flowMeta.marker || "")}</span>`;
   }
 
+  function numberedSyntaxForRow(index) {
+    const span = core.syntaxLineSpan(state.macro.rows || [], index);
+    return numberedSyntaxForSpan(span);
+  }
+
+  function numberedSyntaxForSpan(span) {
+    const lines = syntaxLinesForSpan(span);
+    const width = String(Math.max(latestSyntaxLines.length, span.end || 1)).length;
+    return lines.map((line, offset) => formatNumberedSyntaxLine(span.start + offset, line, width)).join("\n");
+  }
+
+  function syntaxLinesForSpan(span) {
+    const source = latestSyntaxLines.length ? latestSyntaxLines : syntaxTextToLines(core.buildSyntax(state.macro.rows || []));
+    return source.slice(Math.max(0, span.start - 1), span.end);
+  }
+
+  function formatNumberedSyntaxLine(lineNumber, text, width) {
+    return `${String(lineNumber).padStart(width, " ")}  ${text}`;
+  }
+
   function renderFlowOverlay(flowMap) {
     const existing = el.steps.querySelector(".flow-overlay");
     if (existing) existing.remove();
 
-    const loops = (flowMap && flowMap.overlayLoops) || [];
-    if (!loops.length) return;
+    const links = activeFlowLinks(flowMap);
+    if (!links.length) return;
 
     const rows = Array.from(el.steps.querySelectorAll(".step-row"));
     const width = Math.max(el.steps.scrollWidth, el.steps.clientWidth);
@@ -1379,15 +2007,16 @@
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     svg.setAttribute("aria-hidden", "true");
 
-    loops.forEach((loop) => {
-      const from = flowAnchor(rows[loop.from], loop.lane);
-      const to = flowAnchor(rows[loop.to], loop.lane);
+    links.forEach((link, offset) => {
+      const lane = flowLinkLane(link, offset);
+      const from = flowAnchor(rows[link.sourceIndex], lane);
+      const to = flowAnchor(rows[link.targetIndex], lane);
       if (!from || !to) return;
       const x = from.x;
       const y1 = Math.min(from.y, to.y);
       const y2 = Math.max(from.y, to.y);
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("class", `flow-overlay-line lane-${loop.lane}`);
+      line.setAttribute("class", `flow-overlay-line active-flow ${link.isLoop ? "loop-flow" : "jump-flow"} lane-${lane}`);
       line.setAttribute("x1", String(x));
       line.setAttribute("x2", String(x));
       line.setAttribute("y1", String(y1));
@@ -1395,7 +2024,7 @@
       svg.appendChild(line);
       [y1, y2].forEach((y) => {
         const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        dot.setAttribute("class", `flow-overlay-dot lane-${loop.lane}`);
+        dot.setAttribute("class", `flow-overlay-dot active-flow ${link.isLoop ? "loop-flow" : "jump-flow"} lane-${lane}`);
         dot.setAttribute("cx", String(x));
         dot.setAttribute("cy", String(y));
         dot.setAttribute("r", "3.5");
@@ -1404,6 +2033,19 @@
     });
 
     el.steps.appendChild(svg);
+  }
+
+  function activeFlowLinks(flowMap) {
+    const links = (flowMap && flowMap.flowLinks) || [];
+    if (!links.length) return [];
+    const activeIndex = Number.isInteger(state.hoverFlowIndex) ? state.hoverFlowIndex : state.selectedIndex;
+    if (!Number.isInteger(activeIndex)) return [];
+    return links.filter((link) => link.sourceIndex === activeIndex || link.targetIndex === activeIndex);
+  }
+
+  function flowLinkLane(link, offset) {
+    if (Number.isInteger(link.lane) && link.lane >= 0 && link.lane < 3) return link.lane;
+    return offset % 3;
   }
 
   function flowAnchor(rowEl, lane) {
@@ -1501,11 +2143,11 @@
         ].join("");
       case "package":
         return [
-          fieldInput(index, "name", row.name || row.fileName || "AMC 包", "包名稱", "text"),
-          readOnlyField("來源", row.fileName || ""),
-          readOnlyField("RepeatType", `${row.repeatType ?? "0"}（匯出以目前主檔為準）`),
-          readOnlyField("內容", `${row.rows ? row.rows.length : 0} 個項目 / ${core.lineCountForRows(row.rows || [])} 行語法`),
-          `<div class="package-preview"><code>${escapeHtml(core.buildSyntax(row.rows || [])) || "&nbsp;"}</code></div>`
+          `<div class="package-meta-row">`,
+          packageTextField(index, "name", row.name || row.fileName || "AMC 包", "包名稱", false, "package-name-field"),
+          packageTextField(index, "", row.fileName || "", "來源", true, "package-source-field"),
+          `</div>`,
+          `<div class="package-preview"><code>${escapeHtml(numberedSyntaxForRow(index)) || "&nbsp;"}</code></div>`
         ].join("");
       case "say":
         return fieldInput(index, "text", row.text || "", "字串", "text");
@@ -1524,19 +2166,28 @@
       el.rawSyntax.value = core.buildSyntax(state.macro.rows || []);
       el.applyRawButton.disabled = true;
     }
+    renderRawLineNumbers();
+  }
+
+  function renderRawLineNumbers() {
+    if (!el.rawLineNumbers || !el.rawSyntax) return;
+    const count = Math.max(1, syntaxTextToLines(el.rawSyntax.value).length);
+    const width = String(count).length;
+    el.rawLineNumbers.textContent = Array.from({ length: count }, (_, index) => String(index + 1).padStart(width, " ")).join("\n");
+    syncRawLineNumberScroll();
+  }
+
+  function syncRawLineNumberScroll() {
+    if (!el.rawLineNumbers || !el.rawSyntax) return;
+    el.rawLineNumbers.scrollTop = el.rawSyntax.scrollTop;
   }
 
   function renderStatus() {
     const rows = state.macro.rows || [];
     const analysis = core.analyzeRows(rows);
+    updateSyntaxPanelWarning(analysis);
     el.editorSummary.textContent = `${analysis.displayCount} 個項目，${analysis.lineCount} 行語法`;
     el.insertPosition.textContent = state.selectedIndex === null ? "加入到結尾" : `加入到第 ${state.selectedIndex + 1} 個項目後`;
-
-    const messages = [];
-    messages.push(`${analysis.displayCount} 個項目`);
-    if (analysis.unknown) messages.push(`${analysis.unknown} 行原始保留`);
-    if (state.rawDirty) messages.push("原始文字尚未套用");
-    setStatus(messages.join("，") || "可編輯");
 
     el.analysisList.innerHTML = "";
     const items = [];
@@ -1550,6 +2201,13 @@
       li.textContent = message;
       el.analysisList.appendChild(li);
     });
+  }
+
+  function updateSyntaxPanelWarning(analysis) {
+    if (!el.syntaxPanelToggle || !analysis) return;
+    const hasIssue = Boolean(analysis.unknown || (analysis.warnings && analysis.warnings.length));
+    el.syntaxPanelToggle.classList.toggle("has-warning", hasIssue);
+    el.syntaxPanelToggle.title = hasIssue ? "Syntax：檢查有提示，請打開查看" : "Syntax：檢查與原始語法";
   }
 
   function rowSummary(row) {
@@ -1627,19 +2285,12 @@
     return `<label class="inline-field"><span>${label}</span><select data-index="${index}" data-field="${field}">${opts}</select></label>`;
   }
 
-  function readOnlyField(label, value) {
-    return `<label class="inline-field"><span>${label}</span><input type="text" value="${escapeAttr(value)}" readonly></label>`;
-  }
-
-  function toggleToolControls() {
-    const condIsVar = el.condRightKind.value === "var";
-    el.condRightNumber.hidden = condIsVar;
-    el.condRightVar.hidden = !condIsVar;
-
-    const assignNeedsVar = el.assignMode.value !== "number";
-    document.querySelectorAll(".assign-source").forEach((node) => {
-      node.hidden = !assignNeedsVar;
-    });
+  function packageTextField(index, field, value, label, readOnly, className) {
+    const safeValue = String(value || "");
+    const width = Math.min(Math.max(safeValue.length + 2, 10), 42);
+    const dataAttrs = readOnly ? "" : ` data-index="${index}" data-field="${field}"`;
+    const readonlyAttr = readOnly ? " readonly" : "";
+    return `<label class="inline-field package-inline-field ${className}" style="--field-ch: ${width}ch"><span>${label}</span><input${dataAttrs} type="text" value="${escapeAttr(safeValue)}" title="${escapeAttr(safeValue)}"${readonlyAttr}></label>`;
   }
 
   function activateToolTab(tabName) {
@@ -1662,7 +2313,27 @@
   }
 
   function setStatus(message) {
-    el.statusText.textContent = message;
+    showToast(message, /失敗|無法|錯誤|無效/.test(message));
+  }
+
+  function statusTime() {
+    return new Date().toLocaleTimeString("zh-TW", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    });
+  }
+
+  function showToast(message, isError) {
+    if (!el.toast) return;
+    window.clearTimeout(toastTimer);
+    el.toast.textContent = message;
+    el.toast.classList.toggle("error", Boolean(isError));
+    el.toast.classList.add("visible");
+    toastTimer = window.setTimeout(() => {
+      el.toast.classList.remove("visible");
+    }, isError ? 4200 : 2600);
   }
 
   async function copyTextToClipboard(text) {
@@ -1692,34 +2363,6 @@
     return copied;
   }
 
-  function valueOr(value, fallback) {
-    return String(value ?? "").trim() === "" ? fallback : String(value).trim();
-  }
-
-  function numberOr(value, fallback) {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : fallback;
-  }
-
-  function clone(value) {
-    return JSON.parse(JSON.stringify(value));
-  }
-
-  function safeFileName(value) {
-    return String(value || "macro.amc").trim().replace(/[\\/:*?"<>|]+/g, "_");
-  }
-
-  function updateFileNamesFromInput(clearHandles) {
-    const base = baseNameFromFile(el.saveNameInput.value || "未命名");
-    state.saveBaseName = base || "未命名";
-    syncFileNamesFromBase();
-    if (clearHandles) {
-      state.amcHandle = null;
-      state.projectHandle = null;
-    }
-    el.fileName.textContent = state.fileName;
-  }
-
   function syncFileNamesFromBase() {
     const base = safeFileName(baseNameFromFile(state.saveBaseName || "未命名")) || "未命名";
     state.saveBaseName = base;
@@ -1728,9 +2371,20 @@
     if (state.macro) state.macro.fileName = state.fileName;
   }
 
-  function baseNameFromFile(value) {
-    return safeFileName(String(value || "未命名")
-      .replace(/\.(amc|xml|x7proj|json)$/i, "")) || "未命名";
+  function savedFileName(handle, fallbackName) {
+    return handle && handle.name ? handle.name : fallbackName;
+  }
+
+  function syncBaseNameFromSavedFile(fileName) {
+    if (!fileName) return;
+    state.saveBaseName = baseNameFromFile(fileName);
+    syncFileNamesFromBase();
+  }
+
+  function syncProjectNameFromSavedFile(fileName) {
+    if (!fileName) return;
+    const base = safeFileName(baseNameFromFile(fileName)) || "未命名";
+    state.projectFileName = `${base}.x7proj`;
   }
 
   function amcFileName() {
@@ -1771,6 +2425,8 @@
 
     if (canUseFileSystemAccess()) {
       const handle = await window.showSaveFilePicker({
+        id: options.pickerId || "x7-amc-save",
+        startIn: options.startInHandle || undefined,
         suggestedName: options.suggestedName,
         types: options.types
       });
@@ -1806,41 +2462,4 @@
     return error && (error.name === "AbortError" || error.name === "NotAllowedError");
   }
 
-  function normalizeProjectMacro(macro) {
-    const fallback = core.createBlankMacro();
-    const normalized = {
-      ...fallback,
-      ...clone(macro || {})
-    };
-    normalized.rows = Array.isArray(normalized.rows) ? normalized.rows : [];
-    normalized.repeatType = String(normalized.repeatType ?? "0");
-    normalized.keyUpSyntax = normalized.keyUpSyntax || "";
-    return normalized;
-  }
-
-  function encodingLabel(encoding) {
-    if (encoding === "utf-16le") return "UTF-16LE BOM";
-    if (encoding === "big5") return "Big5";
-    return "UTF-8";
-  }
-
-  function keyboardDisplayLabel(label) {
-    return String(label)
-      .replace(/^Num Lock$/, "Num")
-      .replace(/^Num Enter$/, "Enter")
-      .replace(/^Num /, "");
-  }
-
-  function escapeHtml(value) {
-    return String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-  }
-
-  function escapeAttr(value) {
-    return escapeHtml(value).replace(/\n/g, "&#10;");
-  }
 })();

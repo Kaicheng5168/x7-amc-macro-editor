@@ -1,0 +1,11 @@
+* text=auto eol=lf
+
+*.amc text eol=crlf
+*.css text eol=lf
+*.html text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.x7proj text eol=lf
+*.png binary
+*.PNG binary

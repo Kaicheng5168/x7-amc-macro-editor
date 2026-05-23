@@ -1,0 +1,176 @@
+body.min-workspace-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+body.min-workspace-scroll .app-shell {
+  width: max(100vw, var(--app-min-width));
+  min-width: var(--app-min-width);
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body.min-workspace-scroll .topbar {
+  position: relative;
+  z-index: 80;
+}
+
+body.min-workspace-scroll .workspace {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+body.min-workspace-scroll.effective-over-1220 .workspace {
+  grid-template-columns: minmax(360px, clamp(390px, 28vw, 520px)) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+body.min-workspace-scroll.effective-over-1220 #toolsPanelToggle {
+  display: none;
+}
+
+body.min-workspace-scroll.effective-over-1220 .sidebar {
+  position: static;
+  display: block;
+  width: auto;
+  max-height: none;
+  grid-column: 1;
+  grid-row: 1 / 3;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+body.min-workspace-scroll.effective-over-1220 .tools-popup-head {
+  display: none;
+}
+
+body.min-workspace-scroll.effective-over-1220 .editor-shell {
+  grid-column: 2;
+}
+
+body.min-workspace-scroll.effective-over-1220 .input-dock {
+  grid-column: 2;
+}
+
+body.min-workspace-scroll.effective-over-820 .input-dock {
+  grid-template-columns: clamp(220px, 16vw, 280px) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+body.min-workspace-scroll.effective-over-799 .topbar {
+  flex-direction: row;
+  align-items: center;
+  overflow: visible;
+}
+
+body.min-workspace-scroll.effective-over-799 .brand {
+  align-items: baseline;
+}
+
+body.min-workspace-scroll.effective-over-799 .top-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  margin-left: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+body.min-workspace-scroll.effective-over-799 .editor-head {
+  position: static;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+body.min-workspace-scroll.effective-over-799 .editor-actions {
+  width: auto;
+  flex-wrap: wrap;
+  overflow: visible;
+}
+
+body.min-workspace-scroll.effective-over-799 .editor-separator {
+  display: block;
+}
+
+body.min-workspace-scroll.effective-over-799 .steps {
+  overflow: auto;
+  padding: 6px 8px;
+}
+
+body.min-workspace-scroll.effective-over-799 .step-row {
+  grid-template-columns: 34px 48px minmax(0, 1fr) auto;
+  grid-template-rows: auto;
+  gap: 6px;
+  align-items: center;
+  padding: 5px 6px;
+}
+
+body.min-workspace-scroll.effective-over-799 .flow-rail {
+  grid-column: auto;
+  grid-row: auto;
+  width: 34px;
+  min-width: 34px;
+}
+
+body.min-workspace-scroll.effective-over-799 .line-number {
+  grid-column: auto;
+  grid-row: auto;
+  justify-self: auto;
+  min-width: 0;
+  min-height: 28px;
+}
+
+body.min-workspace-scroll.effective-over-799 .step-summary {
+  grid-column: auto;
+  grid-row: auto;
+  display: grid;
+  grid-template-columns: 48px 58px 52px minmax(0, 1fr);
+  gap: 5px;
+  align-items: center;
+}
+
+body.min-workspace-scroll.effective-over-799 .step-summary > .badge {
+  grid-column: 1;
+}
+
+body.min-workspace-scroll.effective-over-799 .step-summary > .flow-chip {
+  grid-column: 2;
+}
+
+body.min-workspace-scroll.effective-over-799 .step-summary > .inbound-chip-group,
+body.min-workspace-scroll.effective-over-799 .step-summary > .inbound-count {
+  grid-column: 3;
+}
+
+body.min-workspace-scroll.effective-over-799 .step-summary > strong {
+  grid-column: 4;
+  flex: initial;
+  flex-basis: auto;
+  white-space: nowrap;
+}
+
+body.min-workspace-scroll.effective-over-799 .row-actions {
+  grid-column: auto;
+  grid-row: auto;
+  align-self: center;
+  justify-self: end;
+  display: grid;
+  grid-template-columns: repeat(6, 24px);
+  gap: 3px;
+  width: 159px;
+  max-width: none;
+}
+
+body.min-workspace-scroll.effective-over-799 .row-actions .icon-button {
+  width: auto;
+}
+
+body.min-workspace-scroll.effective-over-799 .flow-sources-detail,
+body.min-workspace-scroll.effective-over-799 .step-editor {
+  grid-column: 3 / -1;
+}

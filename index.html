@@ -3,34 +3,42 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AMC Macro Editor</title>
+  <title>X7 AMC Macro Editor</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
-        <strong>AMC Macro Editor</strong>
+        <strong>X7 AMC Macro Editor</strong>
+        <a class="folder-link-button" href="http://www.x7.cn/cn/download.asp" target="_blank" rel="noopener noreferrer">官方網站</a>
         <button id="macroFolderButton" class="folder-link-button" type="button" title="複製巨集資料夾路徑">巨集資料夾</button>
-        <span>匯入、逐行編輯、匯出 X7 .amc 巨集</span>
       </div>
       <div class="top-actions">
         <input id="fileInput" type="file" accept=".amc,.xml,text/xml" hidden>
         <input id="packageInput" type="file" accept=".amc,.xml,text/xml" hidden>
         <input id="projectInput" type="file" accept=".x7proj,.json,application/json" hidden>
         <button id="newButton" class="button" type="button">新增</button>
-        <button id="templateButton" class="button" type="button">流程範本</button>
-        <button id="openProjectButton" class="button" type="button">開啟專案</button>
-        <button id="saveProjectButton" class="button" type="button">儲存專案</button>
-        <button id="saveProjectAsButton" class="button" type="button">另存專案</button>
+        <button id="templateButton" class="button" type="button">變數範本</button>
+        <span class="top-action-separator" aria-hidden="true"></span>
+        <button id="openProjectButton" class="button project-action" type="button">開啟專案</button>
+        <button id="saveProjectButton" class="button project-action" type="button">儲存專案</button>
+        <button id="saveProjectAsButton" class="button project-action" type="button">另存專案</button>
+        <span class="top-action-separator" aria-hidden="true"></span>
         <button id="openButton" class="button primary" type="button">匯入 .amc</button>
-        <button id="exportButton" class="button strong" type="button">匯出 .amc</button>
-        <button id="exportAsButton" class="button strong" type="button">另存 .amc</button>
+        <span class="top-action-separator" aria-hidden="true"></span>
+        <button id="metaPanelToggle" class="button top-panel-button meta-panel-action" type="button" aria-expanded="false">輸出 .amc</button>
+        <button id="syntaxPanelToggle" class="button top-panel-button syntax-panel-action" type="button" aria-expanded="false">Syntax</button>
       </div>
     </header>
 
     <main class="workspace">
-      <aside class="sidebar">
+      <aside class="sidebar" aria-label="新增指令面板">
+        <div class="tools-popup-head">
+          <strong>新增指令</strong>
+          <button id="toolsPanelClose" class="button" type="button">關閉</button>
+        </div>
         <section class="panel tool-panel">
           <div class="panel-head">
             <h2>新增指令</h2>
@@ -38,7 +46,10 @@
           </div>
 
           <section class="tool-card tool-card-primary">
-            <h3>延遲 / 移動</h3>
+            <div class="tool-card-head">
+              <h3>延遲 / 移動</h3>
+              <button id="openPickerButton" class="button" type="button">取點視窗</button>
+            </div>
             <div class="tool-line delay-line">
               <span class="tool-label">延遲</span>
               <label class="inline-field">
@@ -70,6 +81,13 @@
               <button id="captureAbsButton" class="button capture-button" type="button" title="按住後在目標位置放開">取點</button>
               <button class="button" data-add="moveAbs" type="button">加入</button>
             </div>
+            <div class="tool-line coordinate-point-line">
+              <span class="tool-label">絕對清單</span>
+              <label class="inline-field coordinate-point-field">
+                <span>取點</span>
+                <select id="absPointSelect"></select>
+              </label>
+            </div>
 
             <div class="tool-line move-line">
               <span class="tool-label">相對座標</span>
@@ -84,17 +102,59 @@
               <button id="captureRelButton" class="button capture-button" type="button" title="以絕對座標為起點，拖曳到目標位置後放開">拖曳</button>
               <button class="button" data-add="moveRel" type="button">加入</button>
             </div>
-            <div id="coordinateStatus" class="coordinate-status">座標取點會使用瀏覽器提供的螢幕座標</div>
+            <div class="tool-line coordinate-point-line">
+              <span class="tool-label">相對清單</span>
+              <label class="inline-field coordinate-point-field">
+                <span>取點</span>
+                <select id="relPointSelect"></select>
+              </label>
+            </div>
+            <div id="coordinateStatus" class="coordinate-status">使用螢幕座標取點</div>
           </section>
 
           <section class="tool-tabs">
             <div class="tool-tab-list" role="tablist" aria-label="新增指令分類">
-              <button class="tool-tab active" data-tool-tab="flow" type="button">流程</button>
+              <button class="tool-tab active" data-tool-tab="combos" type="button">組合</button>
+              <button class="tool-tab" data-tool-tab="flow" type="button">跳至</button>
+              <button class="tool-tab" data-tool-tab="conditions" type="button">條件</button>
               <button class="tool-tab" data-tool-tab="vars" type="button">變數</button>
-              <button class="tool-tab" data-tool-tab="raw" type="button">原始</button>
+              <button class="tool-tab" data-tool-tab="raw" type="button">註解</button>
+              <button class="tool-tab" data-tool-tab="assist" type="button">輔助</button>
             </div>
 
-            <div class="tool-tab-panel flow-panel active" data-tool-panel="flow">
+            <div class="tool-tab-panel combos-panel active" data-tool-panel="combos">
+              <div class="tool-line package-line">
+                <span class="tool-label">AMC 包</span>
+                <span class="disabled-note">插入外部 .amc，匯出時展開</span>
+                <button id="packageButton" class="button primary" type="button">插入包</button>
+              </div>
+              <div class="tool-line flow-combo-line">
+                <span class="tool-label">常用組合</span>
+                <label class="inline-field">
+                  <span>組合</span>
+                  <select id="commonFlowCombo">
+                    <option value="varLoop">變數迴圈</option>
+                    <option value="goWhileBlock">固定迴圈</option>
+                    <option value="branch">條件分支</option>
+                  </select>
+                </label>
+                <label class="inline-field">
+                  <span>變數</span>
+                  <select id="commonFlowVar"></select>
+                </label>
+                <label class="inline-field">
+                  <span>次數/值</span>
+                  <input id="commonFlowTimes" type="number" value="3" min="1">
+                </label>
+                <label class="inline-field">
+                  <span>延遲</span>
+                  <input id="commonFlowDelay" type="number" value="100" min="0">
+                </label>
+                <button class="button" data-add="flowCombo" type="button">加入組合</button>
+              </div>
+            </div>
+
+            <div class="tool-tab-panel flow-panel" data-tool-panel="flow">
               <div class="tool-line flow-goto-line">
                 <span class="tool-label">跳行</span>
                 <label class="inline-field">
@@ -131,77 +191,130 @@
                   </select>
                 </label>
                 <label class="inline-field">
-                  <span>跳到</span>
+                  <span>跳至</span>
                   <input id="ifKeyTarget" type="number" value="1" min="1">
                 </label>
                 <button class="button" data-add="ifKey" type="button" title="加入 IfKey">加入</button>
               </div>
             </div>
 
-            <div class="tool-tab-panel vars-panel" data-tool-panel="vars">
-              <div class="tool-line var-cond-line">
+            <div class="tool-tab-panel conditions-panel" data-tool-panel="conditions">
+              <div class="tool-line var-cond-line var-cond-number-line">
                 <span class="tool-label">條件</span>
-                <label class="inline-field">
-                  <span>如果</span>
-                  <select id="condLeft"></select>
+                <div class="condition-equation">
+                  <label class="inline-field">
+                    <span>如果</span>
+                    <select id="condNumberLeft"></select>
+                  </label>
+                  <label class="inline-field">
+                    <span>比較</span>
+                    <select id="condNumberOp">
+                      <option value="==">等同</option>
+                      <option value="!=">不等同</option>
+                    </select>
+                  </label>
+                  <label class="inline-field">
+                    <span>數值</span>
+                    <input id="condNumberValue" type="number" value="100">
+                  </label>
+                </div>
+                <label class="inline-field condition-target">
+                  <span>跳至</span>
+                  <input id="condNumberTarget" type="number" value="1" min="1">
                 </label>
-                <label class="inline-field">
-                  <span>比較</span>
-                  <select id="condOp">
-                    <option value="==">等同</option>
-                    <option value="!=">不等同</option>
-                  </select>
-                </label>
-                <label class="inline-field">
-                  <span>右值</span>
-                  <select id="condRightKind">
-                    <option value="number">數字</option>
-                    <option value="var">變數</option>
-                  </select>
-                </label>
-                <label class="inline-field">
-                  <span>值</span>
-                  <input id="condRightNumber" type="number" value="100">
-                  <select id="condRightVar" hidden></select>
-                </label>
-                <label class="inline-field">
-                  <span>跳到</span>
-                  <input id="condTarget" type="number" value="1" min="1">
-                </label>
-                <button class="button" data-add="varIf" type="button" title="加入條件">加入</button>
+                <button class="button" data-add="varIfNumber" type="button" title="加入條件數值">加入</button>
               </div>
 
-              <div class="tool-line var-assign-line">
+              <div class="tool-line var-cond-line var-cond-var-line">
+                <span class="tool-label">條件</span>
+                <div class="condition-equation">
+                  <label class="inline-field">
+                    <span>如果</span>
+                    <select id="condVarLeft"></select>
+                  </label>
+                  <label class="inline-field">
+                    <span>比較</span>
+                    <select id="condVarOp">
+                      <option value="==">等同</option>
+                      <option value="!=">不等同</option>
+                    </select>
+                  </label>
+                  <label class="inline-field">
+                    <span>變數</span>
+                    <select id="condVarRight"></select>
+                  </label>
+                </div>
+                <label class="inline-field condition-target">
+                  <span>跳至</span>
+                  <input id="condVarTarget" type="number" value="1" min="1">
+                </label>
+                <button class="button" data-add="varIfVar" type="button" title="加入條件變數">加入</button>
+              </div>
+            </div>
+
+            <div class="tool-tab-panel vars-panel" data-tool-panel="vars">
+              <div class="tool-line var-assign-line var-assign-number-line">
                 <span class="tool-label">指定</span>
-                <label class="inline-field">
-                  <span>指定</span>
-                  <select id="assignLeft"></select>
-                </label>
-                <label class="inline-field">
-                  <span>模式</span>
-                  <select id="assignMode">
-                    <option value="number">等於數字</option>
-                    <option value="var">等於變數</option>
-                    <option value="add">變數加數字</option>
-                  </select>
-                </label>
-                <label class="inline-field assign-source" hidden>
-                  <span>來源</span>
-                  <select id="assignSource"></select>
-                </label>
-                <label class="inline-field">
-                  <span>數值</span>
-                  <input id="assignNumber" type="number" value="100">
-                </label>
-                <button class="button" data-add="varSet" type="button" title="加入指定">加入</button>
+                <div class="assign-equation">
+                  <label class="inline-field">
+                    <span>變數</span>
+                    <select id="assignNumberLeft"></select>
+                  </label>
+                  <span class="operator-token">=</span>
+                  <label class="inline-field">
+                    <span>數值</span>
+                    <input id="assignNumberValue" type="number" value="100">
+                  </label>
+                </div>
+                <button class="button" data-add="varSetNumber" type="button" title="加入等於數字">加入</button>
+              </div>
+
+              <div class="tool-line var-assign-line var-assign-var-line">
+                <span class="tool-label">指定</span>
+                <div class="assign-equation">
+                  <label class="inline-field">
+                    <span>變數</span>
+                    <select id="assignVarLeft"></select>
+                  </label>
+                  <span class="operator-token">=</span>
+                  <label class="inline-field">
+                    <span>來源</span>
+                    <select id="assignVarSource"></select>
+                  </label>
+                </div>
+                <button class="button" data-add="varSetVar" type="button" title="加入等於變數">加入</button>
+              </div>
+
+              <div class="tool-line var-assign-line var-assign-add-line">
+                <span class="tool-label">指定</span>
+                <div class="assign-equation">
+                  <label class="inline-field">
+                    <span>變數</span>
+                    <select id="assignAddLeft"></select>
+                  </label>
+                  <span class="operator-token">=</span>
+                  <label class="inline-field">
+                    <span>來源</span>
+                    <select id="assignAddSource"></select>
+                  </label>
+                  <span class="operator-token">+</span>
+                  <label class="inline-field">
+                    <span>數值</span>
+                    <input id="assignAddValue" type="number" value="100">
+                  </label>
+                </div>
+                <button class="button" data-add="varSetAdd" type="button" title="加入變數加數字">加入</button>
               </div>
             </div>
 
             <div class="tool-tab-panel raw-tool-panel" data-tool-panel="raw">
-              <div class="tool-line package-line">
-                <span class="tool-label">AMC 包</span>
-                <span class="disabled-note">插入外部 .amc，匯出時展開</span>
-                <button id="packageButton" class="button primary" type="button">插入包</button>
+              <div class="tool-line raw-comment-line">
+                <span class="tool-label">註解</span>
+                <label class="inline-field">
+                  <span>文字</span>
+                  <input id="commentText" type="text" value="說明">
+                </label>
+                <button class="button" data-add="comment" type="button">加入註解</button>
               </div>
               <div class="tool-line raw-line disabled-line">
                 <span class="tool-label">原始行</span>
@@ -216,13 +329,35 @@
                 <span class="disabled-note">暫停使用</span>
                 <button class="button" data-add="blank" type="button" disabled>空白行</button>
               </div>
-              <div class="tool-line raw-comment-line">
-                <span class="tool-label">註解</span>
-                <label class="inline-field">
-                  <span>文字</span>
-                  <input id="commentText" type="text" value="說明">
+            </div>
+
+            <div class="tool-tab-panel assist-panel" data-tool-panel="assist">
+              <div class="assist-note">只修改主指令列表，不會修改 AMC 包內部內容。</div>
+              <div class="assist-delay-row">
+                <span class="assist-delay-kind">滑鼠</span>
+                <label class="assist-delay-field">
+                  <span>按下</span>
+                  <input id="assistMouseDownDelay" type="number" value="64" min="0" aria-label="滑鼠按下延遲 ms">
                 </label>
-                <button class="button" data-add="comment" type="button">加入註解</button>
+                <button class="button primary" data-assist-delay="mouseDown" type="button">修改</button>
+                <label class="assist-delay-field">
+                  <span>彈起</span>
+                  <input id="assistMouseUpDelay" type="number" value="64" min="0" aria-label="滑鼠彈起延遲 ms">
+                </label>
+                <button class="button primary" data-assist-delay="mouseUp" type="button">修改</button>
+              </div>
+              <div class="assist-delay-row">
+                <span class="assist-delay-kind">鍵盤</span>
+                <label class="assist-delay-field">
+                  <span>按下</span>
+                  <input id="assistKeyDownDelay" type="number" value="64" min="0" aria-label="鍵盤按下延遲 ms">
+                </label>
+                <button class="button primary" data-assist-delay="keyDown" type="button">修改</button>
+                <label class="assist-delay-field">
+                  <span>彈起</span>
+                  <input id="assistKeyUpDelay" type="number" value="64" min="0" aria-label="鍵盤彈起延遲 ms">
+                </label>
+                <button class="button primary" data-assist-delay="keyUp" type="button">修改</button>
               </div>
             </div>
           </section>
@@ -233,17 +368,31 @@
         <div class="editor-head">
           <div>
             <h1>指令列表</h1>
-            <p id="editorSummary">0 個項目，0 行語法</p>
+            <p><span class="editor-tagline">匯入、逐行編輯、匯出 X7 .amc 巨集</span><span id="editorSummary">0 個項目，0 行語法</span></p>
           </div>
           <div class="editor-actions">
-            <label class="toggle-chip" title="A：切換點選指令列時是否直接展開編輯欄">
-              <input id="autoExpandToggle" type="checkbox">
-              <span>點選展開(A)</span>
+            <label class="toolbar-select-field repeat-type-select" title="執行方式">
+              <select id="repeatTypeSelect" aria-label="執行方式">
+                <option value="0">僅執行一次</option>
+                <option value="1">按住重複</option>
+                <option value="2">按下切換</option>
+              </select>
             </label>
-            <label class="toggle-chip" title="S：收合/展開鍵盤滑鼠">
+            <span class="editor-separator" aria-hidden="true"></span>
+            <button id="toolsPanelToggle" class="toggle-chip shortcut-toggle" type="button" aria-expanded="false">
+              <span class="shortcut-box" aria-hidden="true"></span>
+              <span>新增指令(A)</span>
+            </button>
+            <label class="toggle-chip" title="S：開關鍵盤滑鼠面板">
               <input id="inputDockToggle" type="checkbox">
-              <span>隱藏鍵盤(S)</span>
+              <span>鍵盤滑鼠(S)</span>
             </label>
+            <span class="editor-separator" aria-hidden="true"></span>
+            <label class="toggle-chip" title="E：切換點選指令列時是否直接展開編輯欄">
+              <input id="autoExpandToggle" type="checkbox">
+              <span>點選展開(E)</span>
+            </label>
+            <span class="editor-separator" aria-hidden="true"></span>
             <button id="clearSelectionButton" class="button" type="button">取消選取</button>
             <button id="deleteSelectionButton" class="button danger" type="button">刪除選取</button>
           </div>
@@ -251,7 +400,11 @@
         <div id="steps" class="steps" aria-live="polite"></div>
       </section>
 
-      <section id="inputDock" class="input-dock">
+      <section id="inputDock" class="input-dock" aria-label="鍵盤滑鼠面板">
+        <div class="input-popup-head">
+          <strong>鍵盤 / 滑鼠</strong>
+          <button id="inputDockClose" class="button" type="button">關閉</button>
+        </div>
         <button id="inputDockRestore" class="input-dock-status" type="button" title="按 S 展開鍵盤滑鼠">
           <strong>鍵盤 / 滑鼠</strong>
           <span>已收合，按 S 展開</span>
@@ -261,17 +414,29 @@
           <div class="input-head">
             <div>
               <h2>滑鼠</h2>
-              <span id="mouseMode">一般：點擊</span>
+              <span id="mouseMode">一般：點一下</span>
+            </div>
+            <div class="tap-settings">
+              <label class="field compact tap-delay-field">
+                <span>按下後</span>
+                <input id="mouseTapDelayInput" type="number" value="64" min="0" aria-label="滑鼠按下後毫秒">
+                <em>ms</em>
+              </label>
+              <label class="field compact tap-delay-field">
+                <span>彈起後</span>
+                <input id="mouseTapReleaseDelayInput" type="number" value="64" min="0" aria-label="滑鼠彈起後毫秒">
+                <em>ms</em>
+              </label>
             </div>
           </div>
           <div id="mousePadGrid" class="mouse-pad-grid">
-            <button class="mouse-key mouse-side mouse-four" data-mouse-action="Button4" type="button" title="側鍵4">四</button>
-            <button class="mouse-key mouse-side mouse-five" data-mouse-action="Button5" type="button" title="側鍵5">五</button>
+            <button class="mouse-key mouse-side mouse-four" data-mouse-action="Button4" type="button" title="側鍵4">側4</button>
+            <button class="mouse-key mouse-side mouse-five" data-mouse-action="Button5" type="button" title="側鍵5">側5</button>
             <button class="mouse-key mouse-button mouse-left" data-mouse-action="Left" type="button" title="左鍵">左鍵</button>
             <button class="mouse-key mouse-button mouse-middle" data-mouse-action="Middle" type="button" title="中鍵">中鍵</button>
             <button class="mouse-key mouse-button mouse-right" data-mouse-action="Right" type="button" title="右鍵">右鍵</button>
-            <button class="mouse-key mouse-wheel mouse-wheel-up" data-mouse-action="WheelUp" type="button" title="滾輪向上">前滾</button>
-            <button class="mouse-key mouse-wheel mouse-wheel-down" data-mouse-action="WheelDown" type="button" title="滾輪向下">後滾</button>
+            <button class="mouse-key mouse-wheel mouse-wheel-up" data-mouse-action="WheelUp" type="button" title="滾輪向上">滾上</button>
+            <button class="mouse-key mouse-wheel mouse-wheel-down" data-mouse-action="WheelDown" type="button" title="滾輪向下">滾下</button>
           </div>
         </section>
 
@@ -282,13 +447,15 @@
               <span id="keyboardMode">一般：按一下</span>
             </div>
             <div class="tap-settings">
-              <label class="field compact">
-                <span>按下後 ms</span>
-                <input id="tapDelayInput" type="number" value="64" min="0">
+              <label class="field compact tap-delay-field">
+                <span>按下後</span>
+                <input id="tapDelayInput" type="number" value="64" min="0" aria-label="鍵盤按下後毫秒">
+                <em>ms</em>
               </label>
-              <label class="field compact">
-                <span>彈起後 ms</span>
-                <input id="tapReleaseDelayInput" type="number" value="64" min="0">
+              <label class="field compact tap-delay-field">
+                <span>彈起後</span>
+                <input id="tapReleaseDelayInput" type="number" value="64" min="0" aria-label="鍵盤彈起後毫秒">
+                <em>ms</em>
               </label>
             </div>
           </div>
@@ -296,54 +463,55 @@
         </section>
       </section>
 
-      <aside class="raw-shell">
-        <section class="panel meta-panel">
-          <div class="compact-facts meta-facts">
-            <span id="fileName">未命名.amc</span>
-            <span id="encodingName">UTF-8</span>
-            <span id="statusText">可編輯</span>
-          </div>
-          <label class="field">
-            <span>檔案名稱</span>
-            <input id="saveNameInput" type="text" autocomplete="off" value="未命名">
-          </label>
-          <div class="meta-grid">
+      <aside class="raw-shell" aria-label="輸出 .amc 與 Syntax 面板">
+        <div class="raw-popup-head">
+          <strong id="rawPanelTitle">輸出 .amc</strong>
+          <button id="rawPanelClose" class="button" type="button">關閉</button>
+        </div>
+        <section class="panel meta-panel" data-raw-panel="meta">
+          <div class="meta-section amc-info-section">
+            <div class="meta-section-title">AMC 功能說明</div>
             <label class="field">
-              <span>名稱</span>
-              <input id="commentInput" type="text" autocomplete="off">
-            </label>
-            <label class="field">
-              <span>分類</span>
+              <span>適用軟體</span>
               <input id="softwareInput" type="text" autocomplete="off">
             </label>
+            <label class="field">
+              <span>功能說明</span>
+              <textarea id="descriptionInput" rows="2"></textarea>
+            </label>
+            <label class="field">
+              <span>動作描述</span>
+              <input id="commentInput" type="text" autocomplete="off">
+            </label>
           </div>
-          <label class="field">
-            <span>描述</span>
-            <textarea id="descriptionInput" rows="2"></textarea>
-          </label>
-          <fieldset class="repeat-field">
-            <legend>RepeatType</legend>
-            <label><input type="radio" name="repeatType" value="0"> 0 單次</label>
-            <label><input type="radio" name="repeatType" value="1"> 1 按住重複</label>
-            <label><input type="radio" name="repeatType" value="2"> 2 按下切換</label>
-          </fieldset>
+          <div class="meta-section amc-export-section">
+            <button id="exportButton" class="button strong" type="button">匯出 .amc</button>
+            <button id="exportAsButton" class="button strong" type="button">另存 .amc</button>
+          </div>
         </section>
-        <section class="panel analysis-panel">
+        <section class="panel analysis-panel" data-raw-panel="syntax">
           <h2>檢查</h2>
           <ul id="analysisList" class="analysis-list"></ul>
         </section>
-        <section class="panel raw-panel">
+        <section class="panel raw-panel" data-raw-panel="syntax">
           <div class="panel-head">
             <h2>原始 Syntax</h2>
             <button id="applyRawButton" class="button" type="button" disabled>套用原始文字</button>
           </div>
-          <textarea id="rawSyntax" spellcheck="false"></textarea>
+          <div class="raw-editor">
+            <pre id="rawLineNumbers" aria-hidden="true"></pre>
+            <textarea id="rawSyntax" spellcheck="false"></textarea>
+          </div>
         </section>
       </aside>
     </main>
   </div>
 
   <script src="macro-core.js"></script>
+  <script src="js/app-data.js"></script>
+  <script src="js/app-utils.js"></script>
+  <script src="js/app-templates.js"></script>
+  <script src="js/app-state.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

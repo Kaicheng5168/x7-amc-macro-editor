@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>X7 取點視窗</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="picker-body">
+  <main class="picker-shell">
+    <header class="picker-header">
+      <h1>取點</h1>
+    </header>
+
+    <section class="picker-card">
+      <h2>絕對座標</h2>
+      <div class="picker-grid">
+        <label class="field">
+          <span>X</span>
+          <input id="absX" type="number" value="0">
+        </label>
+        <label class="field">
+          <span>Y</span>
+          <input id="absY" type="number" value="0">
+        </label>
+      </div>
+      <div class="picker-actions">
+        <button id="captureAbsButton" class="button capture-button" type="button">取點</button>
+      </div>
+    </section>
+
+    <section class="picker-card">
+      <h2>相對座標</h2>
+      <div class="picker-grid">
+        <label class="field">
+          <span>X</span>
+          <input id="relX" type="number" value="0">
+        </label>
+        <label class="field">
+          <span>Y</span>
+          <input id="relY" type="number" value="0">
+        </label>
+      </div>
+      <div class="picker-actions">
+        <button id="captureRelButton" class="button capture-button" type="button">拖曳</button>
+      </div>
+    </section>
+
+    <section class="picker-card picker-list-card">
+      <h2>取點清單</h2>
+      <div id="pointList" class="picker-point-list"></div>
+    </section>
+
+    <div id="status" class="picker-status">等待主視窗同步座標</div>
+  </main>
+
+  <script src="picker.js"></script>
+</body>
+</html>

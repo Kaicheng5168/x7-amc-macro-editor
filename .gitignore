@@ -1,1 +1,13 @@
 MacroLibrary/
+
+# Local OS/editor noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.temp
+*.bak
+*.swp
+
+# Runtime logs
+*.log

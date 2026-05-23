@@ -508,6 +508,16 @@
     const lineCount = lineCountForRows(list);
     const displayCount = list.length;
     const scope = analyzeScope(list, "", warnings);
+    const special = countLineSensitiveRows(list);
+    if (special.blank || special.say) {
+      const parts = [];
+      if (special.blank) parts.push(`${special.blank} 個空白行`);
+      if (special.say) parts.push(`${special.say} 個 SayString`);
+      warnings.push(`目前含 ${parts.join("、")}；本編輯器會把它們計入語法行號，若原廠匯入後跳行異常，請確認原廠是否略過這些行`);
+    }
+    if (special.sayWithText) {
+      warnings.push(`偵測到 ${special.sayWithText} 個帶文字的 SayString；目前參考範本只看過空白 SayString，建議避免放在會執行到的位置`);
+    }
 
     return {
       lineCount,
@@ -557,6 +567,25 @@
     });
 
     return { unknown };
+  }
+
+  function countLineSensitiveRows(rows) {
+    const total = { blank: 0, say: 0, sayWithText: 0 };
+    (rows || []).forEach((row) => {
+      if (!row) return;
+      if (row.type === "blank") total.blank += 1;
+      if (row.type === "say") {
+        total.say += 1;
+        if (String(row.text || "").trim()) total.sayWithText += 1;
+      }
+      if (row.type === "package") {
+        const inner = countLineSensitiveRows(row.rows || []);
+        total.blank += inner.blank;
+        total.say += inner.say;
+        total.sayWithText += inner.sayWithText;
+      }
+    });
+    return total;
   }
 
   function lineCountForRows(rows) {
